@@ -62,6 +62,9 @@ final class EdgeDockController: NSObject {
     private let log = Logger(subsystem: "app.shiori.desktop", category: "dock")
     private let store: NotesStore
     private let settings: SettingsStore
+    private let appAttachment: AppAttachmentContext?
+    private var appBundleIdentifier: String?
+    private var appAnchor: Double = 0.5
     private let privacy: PrivacyLock?
     private var privacySubscription: AnyCancellable?
     private var privacyLocked = false
@@ -84,12 +87,14 @@ final class EdgeDockController: NSObject {
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     private var visible = true
+    private var positionedDisplayID: CGDirectDisplayID?
 
     public init(
         store: NotesStore,
         settings: SettingsStore,
         displayID: CGDirectDisplayID? = nil,
         privacy: PrivacyLock? = nil,
+        appAttachment: AppAttachmentContext? = nil,
         open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
         pointerLocation: @escaping () -> NSPoint = { NSEvent.mouseLocation },
@@ -102,6 +107,7 @@ final class EdgeDockController: NSObject {
             alert.runModal()
         }
     ) {
+        self.appAttachment = appAttachment
         self.store = store
         self.privacy = privacy
         self.privacyLocked = privacy?.isLocked == true
@@ -132,7 +138,22 @@ final class EdgeDockController: NSObject {
             .sink { [weak self] _ in self?.refreshLayout() }
     }
 
+    fileprivate var isAppDock: Bool { appAttachment != nil }
     var phase: DockPhase { phaseMachine.phase }
+    var displayedNotes: [Note] {
+        store.active.filter { note in
+            if let appAttachment {
+                return note.attachedAppBundleIdentifier != nil &&
+                    note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier
+            }
+            return note.attachedAppBundleIdentifier == nil
+        }
+    }
+
+    private func anchorFrame(on screen: NSScreen) -> NSRect {
+        guard let appAttachment else { return screen.visibleFrame }
+        return appAttachment.windowFrame?.intersection(screen.visibleFrame) ?? .zero
+    }
 
     func refreshLayout() {
         refreshLayout(animated: true)
@@ -150,7 +171,12 @@ final class EdgeDockController: NSObject {
     }
 
     func returnFrame(for id: String) -> NSRect? {
-        guard let screen = retainedScreen() else { return nil }
+        guard let screen = retainedScreen(), displayedNotes.contains(where: { $0.id == id }) else { return nil }
+        if appAttachment != nil {
+            let collapsed = frame(for: screen, expanded: false)
+            return NSRect(x: settings.edge == "left" ? collapsed.minX : collapsed.maxX - 14,
+                          y: collapsed.minY, width: 14, height: collapsed.height)
+        }
         let origin = cardScreenFrame(for: id)?.origin ?? frame(for: screen, expanded: false).origin
         let x = settings.edge == "left" ? screen.visibleFrame.minX - 184 : screen.visibleFrame.maxX - 40
         return NSRect(x: x, y: origin.y, width: 224, height: 170)
@@ -159,35 +185,70 @@ final class EdgeDockController: NSObject {
     func creationFrame() -> NSRect? {
         guard let screen = retainedScreen() else { return nil }
         let expanded = frame(for: screen, expanded: true)
-        let x = settings.edge == "left" ? screen.visibleFrame.minX + 23 : screen.visibleFrame.maxX - 23
+        let anchor = anchorFrame(on: screen)
+        let x = settings.edge == "left" ? anchor.minX + 23 : anchor.maxX - 23
         return NSRect(x: x - 112, y: expanded.minY + 22 - 85, width: 224, height: 170)
     }
 
     private func refreshLayout(animated: Bool) {
         guard let panel, let dockView else { return }
-        guard let screen = retainedScreen() else { panel.orderOut(nil); return }
-        let notes = privacyLocked ? store.active.map(PrivacyLock.concealed) : store.active
-        dockView.notes = notes
-        dockView.edge = settings.edge == "left" ? .left : .right
+        if let appAttachment, appBundleIdentifier != appAttachment.currentBundleIdentifier {
+            appBundleIdentifier = appAttachment.currentBundleIdentifier
+            cancelTransitions()
+            phaseMachine.hideImmediately()
+            dockView.scrollIndex = 0
+        }
+        guard let screen = retainedScreen(),
+              appAttachment == nil || (appAttachment?.hasVisibleWindow == true && !displayedNotes.isEmpty) else {
+            cancelTransitions()
+            phaseMachine.hideImmediately()
+            panel.orderOut(nil)
+            return
+        }
+        let anchor = anchorFrame(on: screen)
+        guard !anchor.isEmpty, !anchor.isNull else { panel.orderOut(nil); return }
+        let notes = privacyLocked ? displayedNotes.map(PrivacyLock.concealed) : displayedNotes
+        if dockView.notes != notes { dockView.notes = notes }
+        let edge: DockView.Edge = settings.edge == "left" ? .left : .right
+        if dockView.edge != edge { dockView.edge = edge }
         let availableCardHeight = max(0, screen.visibleFrame.height - DockView.plusHeight - DockView.cardPadding * 2 - DockView.cardHeight)
         dockView.visibleCardLimit = min(DockView.maxVisibleCards, max(1, Int(availableCardHeight / DockView.cardOverlap) + 1))
         dockView.scrollLimit = max(0, notes.count - dockView.visibleCardLimit)
         dockView.scrollIndex = min(dockView.scrollIndex, dockView.scrollLimit)
-        dockView.needsDisplay = true
+        positionedDisplayID = Self.displayID(for: screen)
 
         let frame = frame(for: screen, expanded: phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose)
         setPanelFrame(panel, to: frame, animated: animated)
-        dockView.anchorY = self.frame(for: screen, expanded: false).midY - frame.minY
+        let anchorY = self.frame(for: screen, expanded: false).midY - frame.minY
+        if dockView.anchorY != anchorY {
+            dockView.anchorY = anchorY
+            dockView.needsDisplay = true
+        }
         refreshHitRegion()
         panel.collectionBehavior = settings.collectionBehavior
         if visible && !panel.isVisible { panel.orderFrontRegardless() }
     }
 
+    func refreshPosition() {
+        guard appAttachment != nil, visible, let panel, panel.isVisible, let dockView,
+              let screen = retainedScreen() else { return }
+        guard positionedDisplayID == Self.displayID(for: screen) else { refreshLayout(); return }
+        let target = frame(for: screen, expanded: phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose)
+        setPanelFrame(panel, to: target, animated: false)
+        let anchorY = frame(for: screen, expanded: false).midY - target.minY
+        if dockView.anchorY != anchorY {
+            dockView.anchorY = anchorY
+            dockView.needsDisplay = true
+        }
+        refreshHitRegion()
+    }
+
     func setVisible(_ isVisible: Bool) {
+        guard visible != isVisible else { return }
         if !isVisible { finishAnchorDrag() }
         visible = isVisible
         if isVisible {
-            panel?.orderFrontRegardless()
+            refreshLayout()
             updatePointerInteraction()
         } else {
             cancelTransitions()
@@ -219,7 +280,8 @@ final class EdgeDockController: NSObject {
         guard panel.frame != frame else { return }
         // The panel bounds change instantly; the layer transform below slides
         // the fan, so the cards never stretch while the window resizes.
-        panel.setFrame(frame, display: true, animate: false)
+        if panel.frame.size == frame.size { panel.setFrameOrigin(frame.origin) }
+        else { panel.setFrame(frame, display: true, animate: false) }
     }
 
     private func makePanel() {
@@ -271,11 +333,11 @@ final class EdgeDockController: NSObject {
 
     fileprivate func refreshHitRegion() {
         guard let panel, let dockView else { return }
-        panel.ignoresMouseEvents = !visible || (!dockView.isDragging && !dockView.interactiveContains(screenPoint: pointerLocation(), in: panel))
+        panel.ignoresMouseEvents = !visible || !panel.isVisible || (!dockView.isDragging && !dockView.interactiveContains(screenPoint: pointerLocation(), in: panel))
     }
 
     fileprivate func updatePointerInteraction() {
-        guard visible, let panel, let dockView else { return }
+        guard visible, let panel, panel.isVisible, let dockView else { return }
         let screenPoint = pointerLocation()
         if dockView.isDragging {
             panel.ignoresMouseEvents = false
@@ -292,6 +354,14 @@ final class EdgeDockController: NSObject {
     }
 
     private func retainedScreen() -> NSScreen? {
+        if let appAttachment {
+            guard let frame = appAttachment.windowFrame else { return nil }
+            return NSScreen.screens.filter { $0.visibleFrame.intersects(frame) }.max {
+                let left = $0.visibleFrame.intersection(frame)
+                let right = $1.visibleFrame.intersection(frame)
+                return left.width * left.height < right.width * right.height
+            }
+        }
         if let id = fixedDisplayID { return NSScreen.screens.first { Self.displayID(for: $0) == id } }
         if let id = primaryDisplayID,
            let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == id }) {
@@ -304,11 +374,26 @@ final class EdgeDockController: NSObject {
     }
 
     private func frame(for screen: NSScreen, expanded: Bool) -> NSRect {
-        let visibleFrame = screen.visibleFrame
-        let anchor = pendingAnchor ?? settings.anchor
+        let visibleFrame = anchorFrame(on: screen)
+        let anchor = pendingAnchor ?? (appAttachment == nil ? settings.anchor : appAnchor)
+        var center = visibleFrame.minY + visibleFrame.height * anchor
+        if appAttachment != nil {
+            let atScreenEdge = settings.edge == "left"
+                ? visibleFrame.minX - screen.visibleFrame.minX < DockView.collapsedWidth
+                : screen.visibleFrame.maxX - visibleFrame.maxX < DockView.collapsedWidth
+            let screenCenter = min(max(screen.visibleFrame.minY + screen.visibleFrame.height * settings.anchor,
+                                       screen.visibleFrame.minY + DockView.collapsedHeight / 2),
+                                   screen.visibleFrame.maxY - DockView.collapsedHeight / 2)
+            let separation = DockView.collapsedHeight + 12
+            if atScreenEdge, abs(center - screenCenter) < separation {
+                // Keep both stacks reachable when an app fills the screen.
+                center = screenCenter + separation + DockView.collapsedHeight / 2 <= visibleFrame.maxY
+                    ? screenCenter + separation : screenCenter - separation
+            }
+        }
         guard expanded else {
-            let height = DockView.collapsedHeight
-            let y = visibleFrame.minY + (visibleFrame.height * anchor) - (height / 2)
+            let height = min(DockView.collapsedHeight, visibleFrame.height)
+            let y = center - height / 2
             let x = settings.edge == "left"
                 ? visibleFrame.minX
                 : visibleFrame.maxX - DockView.collapsedWidth
@@ -322,12 +407,11 @@ final class EdgeDockController: NSObject {
 
         let cardHeight = DockView.cardHeight
         let overlap = DockView.cardOverlap
-        let visibleCount = min(dockView?.visibleCardLimit ?? DockView.maxVisibleCards, max(1, store.active.count))
+        let visibleCount = min(dockView?.visibleCardLimit ?? DockView.maxVisibleCards, max(1, dockView?.notes.count ?? 0))
         let desiredHeight = DockView.plusHeight + DockView.cardPadding * 2
             + cardHeight + CGFloat(max(0, visibleCount - 1)) * overlap
-        let height = min(max(desiredHeight, DockView.collapsedHeight), visibleFrame.height)
-        let center = visibleFrame.minY + visibleFrame.height * anchor
-        let y = min(max(center - height / 2, visibleFrame.minY), visibleFrame.maxY - height)
+        let height = min(max(desiredHeight, DockView.collapsedHeight), screen.visibleFrame.height)
+        let y = min(max(center - height / 2, screen.visibleFrame.minY), screen.visibleFrame.maxY - height)
         let width = DockView.expandedWidth
         let x = settings.edge == "left" ? visibleFrame.minX : visibleFrame.maxX - width
         return NSRect(x: x, y: y, width: width, height: height)
@@ -425,13 +509,14 @@ final class EdgeDockController: NSObject {
     }
 
     fileprivate func moveAnchor(to screenPoint: NSPoint) {
-        let screen = fixedDisplayID == nil ? NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? retainedScreen() : retainedScreen()
+        let screen = fixedDisplayID == nil && appAttachment == nil ? NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? retainedScreen() : retainedScreen()
         guard let screen else { return }
-        if fixedDisplayID == nil {
+        if fixedDisplayID == nil && appAttachment == nil {
             primaryDisplayID = Self.displayID(for: screen)
             settings.defaults.set(primaryDisplayID, forKey: "edgeDisplayID")
         }
-        let visibleFrame = screen.visibleFrame
+        let visibleFrame = anchorFrame(on: screen)
+        guard visibleFrame.height > 0 else { return }
         pendingAnchor = min(1, max(0, (screenPoint.y - visibleFrame.minY) / visibleFrame.height))
         refreshLayout(animated: false)
     }
@@ -439,7 +524,7 @@ final class EdgeDockController: NSObject {
     fileprivate func finishAnchorDrag() {
         guard let pendingAnchor else { return }
         self.pendingAnchor = nil
-        settings.anchor = pendingAnchor
+        if appAttachment == nil { settings.anchor = pendingAnchor } else { appAnchor = pendingAnchor }
         refreshLayout(animated: false)
     }
 
@@ -465,7 +550,11 @@ final class EdgeDockController: NSObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.store.reorder(ids: ids)
+                // Keep notes in other docks in their existing slots.
+                let moved = Set(ids)
+                var reordered = ids.makeIterator()
+                let allIDs = self.store.active.map { moved.contains($0.id) ? (reordered.next() ?? $0.id) : $0.id }
+                try await self.store.reorder(ids: allIDs)
                 self.refreshLayout()
             } catch {
                 self.log.error("Could not persist dock order (\(String(reflecting: type(of: error)), privacy: .public))")
@@ -615,7 +704,7 @@ private final class DockView: NSView {
         autoresizingMask = [.width, .height]
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("SHIORI edge notes")
+        setAccessibilityLabel(controller.isAppDock ? "SHIORI app notes" : "SHIORI edge notes")
         layer?.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
         addTrackingArea()
     }

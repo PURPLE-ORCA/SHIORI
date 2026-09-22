@@ -35,6 +35,135 @@ final class DockTests: XCTestCase {
         XCTAssertEqual(state.phase, .collapsed)
     }
     @MainActor
+    func testLinkedCardReturnsToAppBorderAndFollowsFrontWindow() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let repository = try await NoteRepository.open(at: root.appendingPathComponent("notes.sqlite"))
+        let store = NotesStore(repository: repository)
+        let settings = SettingsStore(defaults: defaults)
+        settings.edge = "right"
+        let context = AppAttachmentContext()
+        let app = try XCTUnwrap(context.runningApps.first(where: { !$0.isHidden }))
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        let original = screen.visibleFrame.insetBy(dx: 100, dy: 100)
+        func windowInfo(_ frame: NSRect) -> [String: Any] {
+            [kCGWindowOwnerPID as String: app.processIdentifier,
+             kCGWindowNumber as String: CGWindowID(123),
+             kCGWindowIsOnscreen as String: true,
+             kCGWindowLayer as String: 0,
+             kCGWindowBounds as String: ["X": frame.minX, "Y": screen.frame.maxY - frame.maxY,
+                                        "Width": frame.width, "Height": frame.height]]
+        }
+        context.windowInfo = { [windowInfo(original)] }
+        context.record(app)
+        let linked = try await store.create()
+        try await store.setAttachedApp(linked.id, bundleIdentifier: app.bundleIdentifier)
+        let unlinked = try await store.create()
+        let manager = StickyWindowManager(store: store, settings: settings, appAttachment: context,
+            reportError: { XCTFail($0.localizedDescription) })
+        manager.reduceMotion = { true }
+        let appDock = EdgeDockController(store: store, settings: settings, appAttachment: context,
+            open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) }, create: {})
+        let screenDock = EdgeDockController(store: store, settings: settings, open: { _, _ in }, create: {})
+        defer {
+            context.stopTracking()
+            appDock.stop(); screenDock.stop()
+            manager.windows.values.forEach { $0.close() }
+        }
+        manager.visibilityChanged = { appDock.refreshLayout() }
+        context.windowChanged = { needsVisibilityRefresh in
+            if needsVisibilityRefresh { manager.refreshVisibility(resample: false) }
+            else { appDock.refreshPosition() }
+        }
+        manager.edgeFrame = { id, _ in appDock.returnFrame(for: id) }
+        manager.restorePinned()
+        let panel = try XCTUnwrap(NSApp.windows.first { $0.contentView?.accessibilityLabel() == "SHIORI app notes" })
+        XCTAssertEqual(appDock.displayedNotes.map(\.id), [linked.id])
+        XCTAssertEqual(screenDock.displayedNotes.map(\.id), [unlinked.id])
+        XCTAssertNil(screenDock.returnFrame(for: linked.id))
+        XCTAssertEqual(panel.frame.maxX, original.maxX, accuracy: 0.5)
+        XCTAssertEqual(appDock.returnFrame(for: linked.id)?.maxX, original.maxX)
+        XCTAssertTrue(panel.isVisible)
+
+        manager.close(linked.id)
+        for _ in 0..<100 {
+            if manager.windows[linked.id] == nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(manager.windows[linked.id])
+        XCTAssertEqual(store.note(id: linked.id)?.pinned, false)
+        XCTAssertEqual(store.note(id: linked.id)?.attachedAppBundleIdentifier, app.bundleIdentifier)
+        XCTAssertTrue(panel.isVisible)
+
+        // The first normal on-screen window becomes the anchor, including after moves/resizes.
+        let moved = original.offsetBy(dx: -40, dy: 30).insetBy(dx: 20, dy: 20)
+        context.windowInfo = { [windowInfo(moved), windowInfo(original)] }
+        manager.refreshVisibility()
+        XCTAssertEqual(context.windowFrame, moved)
+        XCTAssertEqual(panel.frame.maxX, moved.maxX, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.midY, moved.midY, accuracy: 0.5)
+        XCTAssertNil(manager.windows[linked.id])
+        // Drag updates use the selected window only and preserve the current deck state.
+        var fullScans = 0
+        context.windowInfo = { fullScans += 1; return [windowInfo(moved)] }
+        let phase = appDock.phase
+        for step in 1...12 {
+            let frame = moved.offsetBy(dx: CGFloat(step), dy: CGFloat(step))
+            context.trackedWindowInfo = { id in
+                XCTAssertEqual(id, 123)
+                return [windowInfo(frame)]
+            }
+            context.sampleMovement()
+            XCTAssertEqual(panel.frame.maxX, frame.maxX, accuracy: 0.5)
+            XCTAssertEqual(panel.frame.midY, frame.midY, accuracy: 0.5)
+            XCTAssertEqual(appDock.phase, phase)
+        }
+        XCTAssertEqual(fullScans, 0)
+        context.trackedWindowInfo = { _ in [windowInfo(moved)] }
+        context.sampleMovement()
+        settings.edge = "left"
+        appDock.refreshLayout()
+        XCTAssertEqual(panel.frame.minX, moved.minX, accuracy: 0.5)
+
+        context.windowInfo = { [windowInfo(screen.visibleFrame)] }
+        manager.refreshVisibility()
+        let screenPanel = try XCTUnwrap(NSApp.windows.first { $0.contentView?.accessibilityLabel() == "SHIORI edge notes" })
+        screenDock.refreshLayout()
+        XCTAssertFalse(panel.frame.intersects(screenPanel.frame))
+        context.windowInfo = { [windowInfo(moved)] }
+        manager.refreshVisibility()
+
+        manager.open(linked.id, near: nil, from: appDock.cardScreenFrame(for: linked.id))
+        for _ in 0..<100 {
+            if manager.windows[linked.id] != nil && manager.transitioningCount == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let editor = try XCTUnwrap(manager.windows[linked.id])
+        XCTAssertTrue(editor.isVisible)
+        // Closing/minimizing the app's last window hides both its tabs and an unpinned editor.
+        context.windowInfo = { [] }
+        context.trackedWindowInfo = { _ in [] }
+        context.sampleMovement()
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertFalse(editor.isVisible)
+        XCTAssertNil(appDock.returnFrame(for: linked.id))
+        XCTAssertNil(screenDock.returnFrame(for: linked.id))
+        context.windowInfo = { [windowInfo(moved)] }
+        manager.refreshVisibility()
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertTrue(editor.isVisible)
+
+        try await store.setAttachedApp(linked.id, bundleIdentifier: nil)
+        appDock.refreshLayout()
+        screenDock.refreshLayout()
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(screenDock.displayedNotes.contains(where: { $0.id == linked.id }))
+        XCTAssertNotNil(screenDock.returnFrame(for: linked.id))
+    }
+
+    @MainActor
     func testRestingStripesDragAndReturnAfterHover() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

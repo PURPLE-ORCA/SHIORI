@@ -2,17 +2,37 @@ import AppKit
 import SwiftUI
 import QuartzCore
 import Combine
+@preconcurrency import ApplicationServices
 
 @MainActor
-final class AppAttachmentContext: ObservableObject {
+final class AppAttachmentContext: NSObject, ObservableObject {
     @Published private(set) var currentBundleIdentifier: String?
+    @Published private(set) var accessibilityGranted = AXIsProcessTrusted()
+    var windowChanged: ((_ needsVisibilityRefresh: Bool) -> Void)?
+    private var trackingEnabled = false
+    private var trackingStarted = false
+    private var displayLink: CADisplayLink?
+    private var trackingScreen: NSScreen?
+    private var trackingUntil: CFTimeInterval = 0
+    private var mouseMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var observer: AXObserver?
+    private var observedWindow: AXUIElement?
+    private var observedApplication: AXUIElement?
+    private var windowID: CGWindowID?
     private var currentApplication: NSRunningApplication?
-    private(set) var hasVisibleWindow = false
+    private(set) var windowFrame: NSRect?
+    var hasVisibleWindow: Bool { windowFrame != nil }
     var windowInfo: () -> [[String: Any]] = {
         CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     }
 
-    init() {
+    var trackedWindowInfo: (CGWindowID) -> [[String: Any]] = {
+        CGWindowListCopyWindowInfo(.optionIncludingWindow, $0) as? [[String: Any]] ?? []
+    }
+
+    override init() {
+        super.init()
         if let app = NSWorkspace.shared.frontmostApplication { record(app) }
     }
 
@@ -24,32 +44,194 @@ final class AppAttachmentContext: ObservableObject {
 
     func record(_ app: NSRunningApplication) {
         guard Self.eligible(app) else { return }
+        let changedApp = currentApplication?.processIdentifier != app.processIdentifier
+        if changedApp { stopObserving() }
         currentApplication = app
         currentBundleIdentifier = app.bundleIdentifier
         refreshWindowVisibility()
+        if changedApp { updateObservation() }
     }
 
     func terminated(_ app: NSRunningApplication) {
         if app.bundleIdentifier == currentBundleIdentifier {
+            stopObserving()
+            displayLink?.isPaused = true
             currentApplication = nil
             currentBundleIdentifier = nil
-            hasVisibleWindow = false
+            windowFrame = nil
+            windowID = nil
         }
     }
 
-    func refreshWindowVisibility() {
+    func refreshWindowVisibility(using info: [[String: Any]]? = nil) {
+        windowID = nil
         guard let app = currentApplication, !app.isTerminated, !app.isHidden else {
-            hasVisibleWindow = false
+            windowFrame = nil
             return
         }
-        hasVisibleWindow = windowInfo().contains { window in
+        windowFrame = nil
+        for window in info ?? windowInfo() {
             guard window[kCGWindowOwnerPID as String] as? pid_t == app.processIdentifier,
                   window[kCGWindowLayer as String] as? Int == 0,
+                  window[kCGWindowIsOnscreen as String] as? Bool != false,
                   (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let bounds = window[kCGWindowBounds as String] as? [String: Any],
-                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
-            return rect.width > 0 && rect.height > 0
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  rect.width > 0, rect.height > 0 else { continue }
+            // Window Server uses a top-left origin on the primary display.
+            windowID = window[kCGWindowNumber as String] as? CGWindowID
+            windowFrame = NSRect(x: rect.minX, y: (NSScreen.screens.first?.frame.maxY ?? 0) - rect.maxY,
+                                 width: rect.width, height: rect.height)
+            break
         }
+    }
+
+    func startTracking() {
+        guard !trackingStarted else { return }
+        trackingStarted = true
+        updateObservation()
+        let events: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in
+            MainActor.assumeIsolated { self?.trackMovement() }
+        }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
+            MainActor.assumeIsolated { self?.trackMovement() }
+            return event
+        }
+    }
+
+    func setTrackingEnabled(_ enabled: Bool) {
+        trackingEnabled = enabled
+        updateObservation()
+        if !enabled { displayLink?.isPaused = true }
+    }
+
+    func requestAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        updateObservation()
+    }
+
+    private func trackMovement() {
+        guard trackingEnabled, windowID != nil else { return }
+        trackingUntil = CACurrentMediaTime() + 0.5
+        let screen = NSScreen.screens.first { screen in
+            windowFrame.map { screen.frame.contains(NSPoint(x: $0.midX, y: $0.midY)) } ?? false
+        } ?? NSScreen.screens.first
+        if trackingScreen != screen {
+            displayLink?.invalidate()
+            displayLink = nil
+            trackingScreen = screen
+        }
+        if displayLink == nil, let screen {
+            let link = screen.displayLink(target: self, selector: #selector(sampleMovement))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+        let wasPaused = displayLink?.isPaused != false
+        displayLink?.isPaused = false
+        if wasPaused { sampleMovement() }
+    }
+
+    @objc func sampleMovement() {
+        guard trackingEnabled else { displayLink?.isPaused = true; return }
+        let oldFrame = windowFrame, oldID = windowID
+        if let windowID {
+            let info = trackedWindowInfo(windowID)
+            refreshWindowVisibility(using: info)
+            if !hasVisibleWindow { refreshWindowVisibility() }
+        } else {
+            refreshWindowVisibility()
+        }
+        if oldFrame != windowFrame || oldID != windowID {
+            windowChanged?(oldFrame == nil || windowFrame == nil || oldID != windowID)
+        }
+        if NSEvent.pressedMouseButtons & 1 == 0 && CACurrentMediaTime() >= trackingUntil {
+            displayLink?.isPaused = true
+        }
+    }
+
+    private func updateObservation() {
+        let trusted = AXIsProcessTrusted()
+        if accessibilityGranted != trusted { accessibilityGranted = trusted }
+        guard trackingStarted, trackingEnabled, trusted, let app = currentApplication, !app.isTerminated else {
+            stopObserving()
+            return
+        }
+        guard observer == nil else { return }
+        var created: AXObserver?
+        let result = AXObserverCreate(app.processIdentifier, { _, _, notification, context in
+            guard let context else { return }
+            MainActor.assumeIsolated {
+                let owner = Unmanaged<AppAttachmentContext>.fromOpaque(context).takeUnretainedValue()
+                owner.observedChange(notification as String)
+            }
+        }, &created)
+        guard result == .success, let created else { return }
+        observer = created
+        let application = AXUIElementCreateApplication(app.processIdentifier)
+        // Do not let an unresponsive app block SHIORI while resolving focus.
+        AXUIElementSetMessagingTimeout(application, 0.05)
+        observedApplication = application
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        for name in [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification, kAXWindowCreatedNotification] {
+            AXObserverAddNotification(created, application, name as CFString, context)
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
+        observeFocusedWindow()
+    }
+
+    private func observeFocusedWindow() {
+        guard let observer, let application = observedApplication else { return }
+        let names = [kAXMovedNotification, kAXResizedNotification, kAXUIElementDestroyedNotification,
+                     kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification]
+        if let observedWindow {
+            for name in names { AXObserverRemoveNotification(observer, observedWindow, name as CFString) }
+        }
+        observedWindow = nil
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return }
+        let window = unsafeDowncast(value, to: AXUIElement.self)
+        observedWindow = window
+        for name in names {
+            AXObserverAddNotification(observer, window, name as CFString, Unmanaged.passUnretained(self).toOpaque())
+        }
+    }
+
+    private func observedChange(_ notification: String) {
+        if notification == kAXMovedNotification || notification == kAXResizedNotification {
+            trackMovement()
+            return
+        }
+        observeFocusedWindow()
+        refreshWindowVisibility()
+        windowChanged?(true)
+        trackMovement()
+    }
+
+    private func stopObserving() {
+        if let observer {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        observer = nil
+        observedWindow = nil
+        observedApplication = nil
+    }
+
+    func stopTracking() {
+        trackingStarted = false
+        trackingEnabled = false
+        stopObserving()
+        displayLink?.invalidate()
+        displayLink = nil
+        trackingScreen = nil
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
+        mouseMonitor = nil
+        localMouseMonitor = nil
+        windowChanged = nil
     }
 
     var runningApps: [NSRunningApplication] {
@@ -93,6 +275,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     private var transitions: [String: Task<Void, Never>] = [:]
     private var closing = Set<String>()
     private var stableFrames: [String: NSRect] = [:]
+    var visibilityChanged: (() -> Void)?
     var edgeFrame: ((String, NSScreen?) -> NSRect?)?
     var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     var transitioningCount: Int { transitions.count }
@@ -314,18 +497,22 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         hidden.toggle()
         refreshVisibility()
     }
-    func refreshVisibility() {
-        appAttachment.refreshWindowVisibility()
+    func refreshVisibility(resample: Bool = true) {
+        if resample { appAttachment.refreshWindowVisibility() }
+        appAttachment.setTrackingEnabled(store.active.contains {
+            $0.attachedAppBundleIdentifier != nil && $0.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier
+        })
         for note in store.active where note.pinned && matchesApp(note) && !hidden && windows[note.id] == nil {
             show(note.id, near: nil, focusTitle: false, activate: false)
         }
         for (id, window) in windows {
             window.collectionBehavior = settings.collectionBehavior
             guard let note = store.note(id: id) else { window.orderOut(nil); continue }
-            if note.archivedAt != nil || note.deletedAt != nil || (note.pinned && (hidden || !matchesApp(note))) {
+            if note.archivedAt != nil || note.deletedAt != nil || (note.pinned && hidden) || !matchesApp(note) {
                 window.orderOut(nil)
             } else if !window.isVisible { window.orderFrontRegardless() }
         }
+        visibilityChanged?()
     }
     func clampWindows() {
         for (id, window) in windows {
@@ -423,6 +610,10 @@ struct StickyEditorView: View {
                             ForEach(appAttachment.runningApps, id: \.processIdentifier) { app in
                                 Button(app.localizedName ?? app.bundleIdentifier ?? "") { attach(app.bundleIdentifier) }
                             }
+                        }
+                        if !appAttachment.accessibilityGranted {
+                            Button("Enable Responsive Window Tracking…") { appAttachment.requestAccessibility() }
+                                .help("Allow Accessibility access to follow window changes.")
                         }
                         if let bundleID = note.attachedAppBundleIdentifier {
                             let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)

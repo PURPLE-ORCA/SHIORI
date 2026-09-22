@@ -25,6 +25,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let dataFolder: URL
     var store: NotesStore?
     var windows: StickyWindowManager?
+    var appTabs: EdgeDockController?
     var edgeTabs: [CGDirectDisplayID: EdgeDockController] = [:]
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
@@ -74,8 +75,14 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func installLifecycleObservers() {
         guard !lifecycleInstalled else { return }
         lifecycleInstalled = true
-        // Window close/minimize events in other apps have no NSWorkspace notification.
-        appVisibilitySubscription = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+        appAttachment.startTracking()
+        appAttachment.windowChanged = { [weak self] needsVisibilityRefresh in
+            guard let self else { return }
+            if needsVisibilityRefresh { self.windows?.refreshVisibility(resample: false) }
+            else { self.appTabs?.refreshPosition() }
+        }
+        // Reconcile apps that omit accessibility notifications and permission changes.
+        appVisibilitySubscription = Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshAppVisibility() }
         }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -94,11 +101,16 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         workspace.addObserver(self, selector: #selector(applicationActivated), name: NSWorkspace.didActivateApplicationNotification, object: nil)
     }
     @objc func refreshAppVisibility() {
-        guard let windows, windows.store.active.contains(where: { $0.pinned && $0.attachedAppBundleIdentifier != nil }) else { return }
+        guard let windows else { return }
+        guard windows.store.active.contains(where: { $0.attachedAppBundleIdentifier != nil }) else {
+            appAttachment.setTrackingEnabled(false)
+            return
+        }
         windows.refreshVisibility()
     }
     func removeLifecycleObservers() {
         appVisibilitySubscription = nil
+        appAttachment.stopTracking()
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         lifecycleInstalled = false
@@ -159,8 +171,21 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             store = loaded
             let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, reportError: { [weak self] error in self?.present(error) })
             windows = manager
+            appTabs = EdgeDockController(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment,
+                open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) },
+                create: { [weak self] in
+                    guard let self, let bundleID = self.appAttachment.currentBundleIdentifier else { return }
+                    self.createNote(on: nil, attachedTo: bundleID)
+                })
+            manager.visibilityChanged = { [weak self, weak manager] in
+                self?.appTabs?.setVisible(manager?.hidden != true)
+                self?.appTabs?.refreshLayout()
+            }
             manager.edgeFrame = { [weak self] id, screen in
                 guard let self else { return nil }
+                if self.store?.note(id: id)?.attachedAppBundleIdentifier != nil {
+                    return self.appTabs?.returnFrame(for: id)
+                }
                 let display = EdgeDockController.displayID(for: screen ?? NSScreen.main)
                 return display.flatMap { self.edgeTabs[$0]?.returnFrame(for: id) } ?? self.edgeTabs.values.first?.returnFrame(for: id)
             }
@@ -200,14 +225,15 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         createNote(on: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main)
     }
 
-    private func createNote(on screen: NSScreen?) {
+    private func createNote(on screen: NSScreen?, attachedTo bundleIdentifier: String? = nil) {
         let point = screen.map { NSPoint(x: $0.visibleFrame.midX + Theme.editorSize.width / 2, y: $0.visibleFrame.midY) }
         guard let store else { return }
         Task {
             do {
                 if let current = windows?.transient { try await store.flush(current) }
                 let note = try await store.create()
-                let source = EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() }
+                if let bundleIdentifier { try await store.setAttachedApp(note.id, bundleIdentifier: bundleIdentifier) }
+                let source = bundleIdentifier != nil ? appTabs?.creationFrame() : EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() }
                 windows?.open(note.id, near: point, focusTitle: true, from: source)
             } catch { present(error) }
         }
@@ -233,6 +259,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         edgeTabs.values.forEach { $0.stop() }
         edgeTabs.removeAll()
+        appTabs?.stop()
+        appTabs = nil
         removeLifecycleObservers()
     }
     @objc func showSettings() {
