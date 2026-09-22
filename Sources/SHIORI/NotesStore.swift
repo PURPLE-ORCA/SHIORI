@@ -22,7 +22,7 @@ public final class NotesStore: ObservableObject {
     @Published public private(set) var saveStates: [String: NoteSaveState] = [:]
     @Published public private(set) var busyIDs = Set<String>()
     public let repository: NoteRepository
-    public var active: [Note] { notes.filter { $0.archivedAt == nil }.sorted { $0.sortIndex < $1.sortIndex } }
+    public var active: [Note] { notes.filter { $0.archivedAt == nil && $0.deletedAt == nil }.sorted { $0.sortIndex < $1.sortIndex } }
 
     private struct Pending {
         var snapshot: Note
@@ -83,7 +83,7 @@ public final class NotesStore: ObservableObject {
         }
     }
     public func edit(_ id: String, title: String? = nil, body: String? = nil, colorIndex: Int? = nil) {
-        guard !isBusy(id), let index = notes.firstIndex(where: { $0.id == id }), notes[index].archivedAt == nil else { return }
+        guard !isBusy(id), let index = notes.firstIndex(where: { $0.id == id }), notes[index].archivedAt == nil, notes[index].deletedAt == nil else { return }
         var note = notes[index]
         let textChanged = (title != nil && title != note.title) || (body != nil && body != note.body)
         let color = colorIndex.map { min(4, max(0, $0)) }
@@ -175,6 +175,22 @@ public final class NotesStore: ObservableObject {
         guard note(id: id)?.pinned != pinned else { return }
         try await repository.setPinned(id: id, pinned: pinned)
         if let index = notes.firstIndex(where: { $0.id == id }) { notes[index].pinned = pinned }
+    }
+    public func delete(_ id: String) async throws {
+        guard !isBusy(id) else { throw StoreError.busy }
+        busyIDs.insert(id); defer { finishOperation(id) }
+        try await flush(id)
+        guard notes.contains(where: { $0.id == id && $0.deletedAt == nil && $0.archivedAt == nil }) else { throw NoteRepositoryError.noteUnavailable }
+        let now = Date().timeIntervalSince1970
+        try await repository.setDeleted(id: id, deletedAt: now)
+        if let current = notes.firstIndex(where: { $0.id == id }) { notes[current].deletedAt = now }
+    }
+    public func undoDelete(_ id: String) async throws {
+        guard !isBusy(id) else { throw StoreError.busy }
+        busyIDs.insert(id); defer { finishOperation(id) }
+        try await repository.setDeleted(id: id, deletedAt: nil)
+        if let index = notes.firstIndex(where: { $0.id == id }) { notes[index].deletedAt = nil }
+        else if let note = try await repository.loadActiveNotes().first(where: { $0.id == id }) { notes.append(note) }
     }
     public func complete(_ id: String) async throws {
         guard !isBusy(id) else { throw StoreError.busy }

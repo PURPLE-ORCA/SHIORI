@@ -15,6 +15,7 @@ public struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable, E
     public var updatedAt: Double
     public var sortIndex: Double
     public var archivedAt: Double?
+    public var deletedAt: Double?
     public var doneAt: Double?
 
     public init(
@@ -27,7 +28,8 @@ public struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable, E
         updatedAt: Double? = nil,
         sortIndex: Double = 0,
         archivedAt: Double? = nil,
-        doneAt: Double? = nil
+        doneAt: Double? = nil,
+        deletedAt: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -39,6 +41,7 @@ public struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable, E
         self.sortIndex = sortIndex
         self.archivedAt = archivedAt
         self.doneAt = doneAt
+        self.deletedAt = deletedAt
     }
 }
 
@@ -117,6 +120,9 @@ public final class NoteRepository: @unchecked Sendable {
             try db.execute(sql: "CREATE INDEX idx_note_archivedAt ON note(archivedAt)")
             try db.execute(sql: "CREATE INDEX idx_note_doneAt ON note(doneAt)")
         }
+        migrator.registerMigration("002_soft_delete") { db in
+            try db.execute(sql: "ALTER TABLE note ADD COLUMN deletedAt REAL")
+        }
         try migrator.migrate(queue)
     }
 
@@ -124,7 +130,7 @@ public final class NoteRepository: @unchecked Sendable {
         try await queue.read { db in
             try Note.fetchAll(
                 db,
-                sql: "SELECT * FROM note WHERE archivedAt IS NULL ORDER BY sortIndex ASC, createdAt DESC"
+                sql: "SELECT * FROM note WHERE deletedAt IS NULL AND archivedAt IS NULL ORDER BY sortIndex ASC, createdAt DESC"
             )
         }
     }
@@ -133,14 +139,14 @@ public final class NoteRepository: @unchecked Sendable {
         try await queue.read { db in
             try Note.fetchAll(
                 db,
-                sql: "SELECT * FROM note WHERE archivedAt IS NOT NULL ORDER BY archivedAt DESC, updatedAt DESC"
+                sql: "SELECT * FROM note WHERE deletedAt IS NULL AND archivedAt IS NOT NULL ORDER BY archivedAt DESC, updatedAt DESC"
             )
         }
     }
 
     public func loadAllNotes() async throws -> [Note] {
         try await queue.read { db in
-            try Note.fetchAll(db, sql: "SELECT * FROM note ORDER BY archivedAt IS NOT NULL, sortIndex ASC, updatedAt DESC")
+            try Note.fetchAll(db, sql: "SELECT * FROM note WHERE deletedAt IS NULL ORDER BY archivedAt IS NOT NULL, sortIndex ASC, updatedAt DESC")
         }
     }
 
@@ -172,7 +178,7 @@ public final class NoteRepository: @unchecked Sendable {
         try await queue.write { db in
             let firstSortIndex = try Double.fetchOne(
                 db,
-                sql: "SELECT MIN(sortIndex) FROM note WHERE archivedAt IS NULL"
+                sql: "SELECT MIN(sortIndex) FROM note WHERE deletedAt IS NULL AND archivedAt IS NULL"
             )
             var inserted = note
             inserted.sortIndex = (firstSortIndex ?? 0) - (firstSortIndex == nil ? 0 : 1)
@@ -189,7 +195,7 @@ public final class NoteRepository: @unchecked Sendable {
     ) async throws {
         try await queue.write { db in
             try db.execute(
-                sql: "UPDATE note SET title = ?, body = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL",
+                sql: "UPDATE note SET title = ?, body = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
                 arguments: [title, body, updatedAt, id]
             )
             guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
@@ -200,7 +206,7 @@ public final class NoteRepository: @unchecked Sendable {
         let colorIndex = min(max(colorIndex, 0), 4)
         try await queue.write { db in
             try db.execute(
-                sql: "UPDATE note SET colorIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL",
+                sql: "UPDATE note SET colorIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
                 arguments: [colorIndex, updatedAt, id]
             )
             guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
@@ -210,7 +216,7 @@ public final class NoteRepository: @unchecked Sendable {
     public func setPinned(id: String, pinned: Bool, updatedAt: Double = Date().timeIntervalSince1970) async throws {
         try await queue.write { db in
             try db.execute(
-                sql: "UPDATE note SET pinned = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL",
+                sql: "UPDATE note SET pinned = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
                 arguments: [pinned, updatedAt, id]
             )
             guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
@@ -221,7 +227,7 @@ public final class NoteRepository: @unchecked Sendable {
         try await queue.write { db in
             for (index, id) in ids.enumerated() {
                 try db.execute(
-                    sql: "UPDATE note SET sortIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL",
+                    sql: "UPDATE note SET sortIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
                     arguments: [Double(index), updatedAt, id]
                 )
             }
@@ -258,13 +264,20 @@ public final class NoteRepository: @unchecked Sendable {
         try await queue.write { db in
             let minSortIndex = try Double.fetchOne(
                 db,
-                sql: "SELECT MIN(sortIndex) FROM note WHERE archivedAt IS NULL"
+                sql: "SELECT MIN(sortIndex) FROM note WHERE deletedAt IS NULL AND archivedAt IS NULL"
             )
             try db.execute(
                 sql: "UPDATE note SET archivedAt = NULL, doneAt = NULL, pinned = 0, sortIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ?",
                 arguments: [(minSortIndex ?? 0) - (minSortIndex == nil ? 0 : 1), updatedAt, id]
             )
             try Self.requireExistingRow(db, id: id)
+        }
+    }
+
+    public func setDeleted(id: String, deletedAt: Double?) async throws {
+        try await queue.write { db in
+            try db.execute(sql: "UPDATE note SET deletedAt = ? WHERE id = ? AND archivedAt IS NULL", arguments: [deletedAt, id])
+            guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
         }
     }
 
