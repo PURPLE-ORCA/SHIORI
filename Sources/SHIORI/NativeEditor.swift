@@ -31,9 +31,15 @@ public struct NativeEditor: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSScrollView {
         let textView = ChecklistTextView(frame: .zero)
+        let bodyFont = Theme.bodyFont
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 3
+        paragraphStyle.paragraphSpacing = 4
         textView.delegate = context.coordinator
         textView.string = text
-        textView.font = NSFont.systemFont(ofSize: 15)
+        textView.font = bodyFont
+        textView.defaultParagraphStyle = paragraphStyle
+        textView.textStorage?.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
         textView.textColor = NSColor.black.withAlphaComponent(0.84)
         textView.insertionPointColor = NSColor.black.withAlphaComponent(0.84)
         textView.drawsBackground = false
@@ -49,12 +55,13 @@ public struct NativeEditor: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 30, height: 12)
+        textView.textContainerInset = NSSize(width: 30, height: 10)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: 15),
-            .foregroundColor: NSColor.black.withAlphaComponent(0.84)
+            .font: bodyFont,
+            .foregroundColor: NSColor.black.withAlphaComponent(0.84),
+            .paragraphStyle: paragraphStyle
         ]
         textView.refreshChecklistAppearance()
 

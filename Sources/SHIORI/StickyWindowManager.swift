@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 final class StickyPanel: NSPanel {
     var requestClose: (() -> Void)?
@@ -18,33 +19,37 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     var hidden = false
     private var geometryTasks: [String: Task<Void, Never>] = [:]
     private var opening: Task<Void, Never>?
+    private var dismissals: [String: Task<Void, Never>] = [:]
+    var deckFrame: ((String) -> NSRect?)?
 
     init(store: NotesStore, settings: SettingsStore, reportError: @escaping (Error) -> Void) {
         self.store = store; self.settings = settings; self.reportError = reportError
     }
-    func open(_ id: String, near point: NSPoint?, focusTitle: Bool = false) {
+    func open(_ id: String, near point: NSPoint?, focusTitle: Bool = false, from cardFrame: NSRect? = nil) {
         let previous = opening
         opening = Task { [weak self] in
             await previous?.value
             guard let self else { return }
+            await self.dismissals[id]?.value
             do {
                 guard let note = self.store.notes.first(where: { $0.id == id }), note.archivedAt == nil else { return }
                 if !note.pinned { try await self.closeTransient(except: id); self.transient = id }
-                self.show(id, near: point, focusTitle: focusTitle)
+                self.show(id, near: point, focusTitle: focusTitle, from: cardFrame)
             } catch { self.reportError(error) }
         }
     }
-    private func show(_ id: String, near point: NSPoint?, focusTitle: Bool, activate: Bool = true) {
+    private func show(_ id: String, near point: NSPoint?, focusTitle: Bool, activate: Bool = true, from cardFrame: NSRect? = nil) {
         if let existing = windows[id] {
             NSApp.activate(ignoringOtherApps: true); existing.makeKeyAndOrderFront(nil); return
         }
         let defaultFrame = NSRect(origin: point.map { NSPoint(x: $0.x - Theme.editorSize.width, y: $0.y - Theme.editorSize.height / 2) } ?? NSPoint(x: (NSScreen.main?.visibleFrame.midX ?? 500) - 180, y: (NSScreen.main?.visibleFrame.midY ?? 500) - 200), size: Theme.editorSize)
-        let frame = WindowGeometry.clamp(settings.frame(id: id) ?? defaultFrame, to: NSScreen.screens.map(\.visibleFrame))
+        let sourceFrame = cardFrame.map { NSRect(x: $0.minX + (settings.edge == "left" ? 24 : -24), y: $0.maxY - Theme.editorSize.height, width: Theme.editorSize.width, height: Theme.editorSize.height) }
+        let frame = WindowGeometry.clamp(settings.frame(id: id) ?? sourceFrame ?? defaultFrame, to: NSScreen.screens.map(\.visibleFrame))
         let window = StickyPanel(contentRect: frame, styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
         window.minSize = NSSize(width: 300, height: 300)
         window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = true
         window.appearance = NSAppearance(named: .aqua)
-        window.animationBehavior = .utilityWindow
+        window.animationBehavior = .none
         window.level = .floating; window.hidesOnDeactivate = false
         window.collectionBehavior = settings.collectionBehavior
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
@@ -53,7 +58,20 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: StickyEditorView(store: store, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, complete: { [weak self] in self?.complete(id) }))
         windows[id] = window
+        let animate = activate && cardFrame != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if animate, let cardFrame {
+            window.setFrame(cardFrame, display: false)
+            window.alphaValue = 0.25
+        }
         if activate { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) } else { window.orderFrontRegardless() }
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Theme.Motion.editor
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().setFrame(frame, display: true)
+                window.animator().alphaValue = 1
+            }
+        }
     }
     func restorePinned() {
         for note in store.notes where note.pinned && note.archivedAt == nil { show(note.id, near: nil, focusTitle: false, activate: false) }
@@ -61,7 +79,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     func closeTransient(except id: String? = nil) async throws {
         if let current = transient, current != id {
             try await store.flush(current)
-            dismiss(current)
+            await dismiss(current)
         }
     }
     func close(_ id: String) {
@@ -69,7 +87,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             do {
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: false)
-                dismiss(id)
+                await dismiss(id)
             } catch { reportError(error) }
         }
     }
@@ -79,24 +97,45 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
                 guard let note = store.notes.first(where: { $0.id == id }) else { return }
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: !note.pinned)
-                if note.pinned { dismiss(id) } else { transient = nil; saveGeometry(id) }
+                if note.pinned { await dismiss(id) } else { transient = nil; saveGeometry(id) }
             } catch { reportError(error) }
         }
     }
     func complete(_ id: String) {
         windows[id]?.makeFirstResponder(nil)
         Task {
-            do { try await store.complete(id); dismiss(id) }
+            do { try await store.complete(id); await dismiss(id) }
             catch { reportError(error) }
         }
     }
-    private func dismiss(_ id: String) {
+    private func dismiss(_ id: String) async {
+        if let pending = dismissals[id] { await pending.value; return }
+        guard let window = windows[id] else { return }
         saveGeometry(id)
-        let window = windows.removeValue(forKey: id)
-        window?.delegate = nil
-        window?.close()
         geometryTasks.removeValue(forKey: id)?.cancel()
-        if transient == id { transient = nil }
+        window.delegate = nil
+        window.ignoresMouseEvents = true
+        window.makeFirstResponder(nil)
+        window.resignKey()
+        let destination = deckFrame?(id)
+        let task = Task { @MainActor in
+            if let destination, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = Theme.Motion.editor
+                        context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                        window.animator().setFrame(destination, display: true)
+                        window.animator().alphaValue = 0
+                    } completionHandler: { continuation.resume() }
+                }
+            }
+            window.close()
+            self.windows.removeValue(forKey: id)
+            if self.transient == id { self.transient = nil }
+        }
+        dismissals[id] = task
+        await task.value
+        dismissals.removeValue(forKey: id)
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if let id = sender.identifier?.rawValue { close(id) }
@@ -117,7 +156,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         let display = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")].map { String(describing: $0) }
         settings.saveFrame(window.frame, id: id, display: display)
     }
-    func saveAllGeometry() { for id in windows.keys { saveGeometry(id) } }
+    func saveAllGeometry() { for id in windows.keys where dismissals[id] == nil { saveGeometry(id) } }
     func toggleHidden() {
         hidden.toggle()
         for (id, window) in windows where store.notes.first(where: { $0.id == id })?.pinned == true {
@@ -159,35 +198,67 @@ struct StickyEditorView: View {
     var body: some View {
         if let note {
             VStack(spacing: 0) {
-                HStack {
-                    Text(Date(timeIntervalSince1970: note.updatedAt), format: .dateTime.month(.abbreviated).day().hour().minute()).font(.caption).foregroundStyle(.black.opacity(0.55)).allowsHitTesting(false)
-                    HeaderDragArea().frame(maxWidth: .infinity, minHeight: 28).accessibilityLabel("Move note")
-                    Button(action: pin) { Image(systemName: note.pinned ? "pin.fill" : "pin") }.accessibilityLabel(note.pinned ? "Unpin note" : "Pin note")
-                    Button(action: close) { Image(systemName: "xmark") }.accessibilityLabel("Return to deck")
-                }.buttonStyle(.plain).padding(.horizontal, 18).padding(.top, 10)
-                TextField("Untitled note", text: Binding(get: { self.note?.title ?? "" }, set: { store.edit(id, title: $0) }))
-                    .font(.system(size: 22, weight: .semibold)).textFieldStyle(.plain).focused($titleFocused)
-                    .onSubmit { titleFocused = false; bodyFocus = true }
-                    .onKeyPress(.tab) { titleFocused = false; bodyFocus = true; return .handled }
-                    .padding(.horizontal, 20).padding(.vertical, 10)
+                HStack(spacing: 6) {
+                    TextField("Untitled note", text: Binding(get: { self.note?.title ?? "" }, set: { store.edit(id, title: $0) }))
+                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                        .textFieldStyle(.plain)
+                        .focused($titleFocused)
+                        .onSubmit { titleFocused = false; bodyFocus = true }
+                        .onKeyPress(.tab) { titleFocused = false; bodyFocus = true; return .handled }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(action: pin) {
+                        Image(systemName: note.pinned ? "pin.fill" : "pin")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                    }
+                    .accessibilityLabel(note.pinned ? "Unpin note" : "Pin note")
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                    }
+                    .accessibilityLabel("Return to deck")
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 22)
+                .padding(.top, 20)
+                HStack(spacing: 8) {
+                    Text(Date(timeIntervalSince1970: note.updatedAt), format: .dateTime.month(.abbreviated).day().hour().minute())
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundStyle(.black.opacity(0.48))
+                        .allowsHitTesting(false)
+                    HeaderDragArea()
+                        .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18)
+                        .accessibilityLabel("Move note")
+                }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 3)
+                    .padding(.bottom, 8)
                 NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 9) {
                     ForEach(0..<5) { index in
                         Button { store.edit(id, colorIndex: index) } label: {
-                            Circle().fill(Theme.color(index)).frame(width: 18, height: 18)
+                            Circle().fill(Theme.color(index)).frame(width: 16, height: 16)
                                 .overlay(Circle().stroke(.black.opacity(note.colorIndex == index ? 0.65 : 0.15), lineWidth: note.colorIndex == index ? 2 : 1))
                         }.buttonStyle(.plain).accessibilityLabel(Theme.names[index])
                     }
                     Spacer()
-                    Button("Complete", systemImage: "checkmark", action: complete).buttonStyle(.plain).font(.system(size: 12, weight: .medium))
-                }.padding(.horizontal, 20).padding(.top, 10)
+                    Button("Complete", systemImage: "checkmark", action: complete)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.08), in: Capsule())
+                }.padding(.horizontal, 20).padding(.top, 9)
                 HStack {
-                    Text(store.saveStatus(id)).font(.system(size: 10)).foregroundStyle(.black.opacity(0.6))
+                    Text(store.saveStatus(id)).font(.system(size: 10, design: .rounded)).foregroundStyle(.black.opacity(0.52))
                     Spacer()
                     if store.hasError(id) {
-                        Button("Retry") { Task { do { try await store.flush(id) } catch { AppCoordinator.logger.error("Retry failed (code \((error as NSError).code))") } } }.font(.caption)
+                        Button("Retry") { Task { do { try await store.flush(id) } catch { AppCoordinator.logger.error("Retry failed (code \((error as NSError).code))") } } }
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
                     }
-                }.padding(.horizontal, 20).padding(.top, 5).padding(.bottom, 10)
+                }.padding(.horizontal, 20).padding(.top, 5).padding(.bottom, 9)
             }
             .foregroundStyle(.black.opacity(0.85)).background(Theme.color(note.colorIndex))
             .clipShape(RoundedRectangle(cornerRadius: Theme.corner))

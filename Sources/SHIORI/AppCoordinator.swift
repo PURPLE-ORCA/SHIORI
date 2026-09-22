@@ -24,7 +24,6 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     var windows: StickyWindowManager?
     var dock: EdgeDockController?
     var statusItem: NSStatusItem!
-    var allNotesWindow: NSWindow?
     var settingsWindow: NSWindow?
     var subscriptions = Set<AnyCancellable>()
     var terminating = false
@@ -53,7 +52,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Show/Hide Deck", #selector(toggleDeck), ""), ("All Notes", #selector(showAllNotes), "l"), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Back Up Now", #selector(backup), ""), ("Reveal Data Folder", #selector(revealData), ""), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Show/Hide Deck", #selector(toggleDeck), ""), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Back Up Now", #selector(backup), ""), ("Reveal Data Folder", #selector(revealData), ""), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
@@ -87,7 +86,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             store = loaded
             let manager = StickyWindowManager(store: loaded, settings: settings, reportError: { [weak self] error in self?.present(error) })
             windows = manager
-            dock = EdgeDockController(store: loaded, settings: settings, open: { [weak manager] id, point in manager?.open(id, near: point) }, create: { [weak self] in self?.newNote() })
+            dock = EdgeDockController(store: loaded, settings: settings, open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) }, create: { [weak self] in self?.newNote() })
+            manager.deckFrame = { [weak dock] id in dock?.cardScreenFrame(for: id) }
             manager.restorePinned()
             do { _ = try await repository.backupIfNeeded(in: dataFolder.appendingPathComponent("Backups")) }
             catch { present(error, title: "The backup could not be created") }
@@ -116,13 +116,6 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     @objc func toggleDeck() { dock?.toggle() }
     @objc func toggleFloating() { windows?.toggleHidden() }
     @objc func displaysChanged() { dock?.refreshLayout(); windows?.clampWindows() }
-    @objc func showAllNotes() {
-        guard let store else { return }
-        if allNotesWindow == nil {
-            allNotesWindow = standardWindow(title: "All Notes", size: NSSize(width: 720, height: 500), content: AllNotesView(store: store, open: { [weak self] in self?.windows?.open($0, near: nil) }, reportError: { [weak self] in self?.present($0) }))
-        }
-        NSApp.activate(ignoringOtherApps: true); allNotesWindow?.makeKeyAndOrderFront(nil)
-    }
     @objc func showSettings() {
         if settingsWindow == nil {
             settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 390, height: 310), content: SettingsView(settings: settings, reset: { [weak self] in

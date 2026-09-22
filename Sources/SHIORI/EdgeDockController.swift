@@ -62,7 +62,7 @@ final class EdgeDockController: NSObject {
     private let log = Logger(subsystem: "app.shiori.desktop", category: "dock")
     private let store: NotesStore
     private let settings: SettingsStore
-    private let openNote: (String, NSPoint?) -> Void
+    private let openNote: (String, NSRect?) -> Void
     private let createNote: () -> Void
     private let reportError: (Error) -> Void
 
@@ -76,12 +76,14 @@ final class EdgeDockController: NSObject {
     private var closeWork: DispatchWorkItem?
     private var settingsCancellable: AnyCancellable?
     private var storeCancellable: AnyCancellable?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
     private var visible = true
 
     public init(
         store: NotesStore,
         settings: SettingsStore,
-        open: @escaping (String, NSPoint?) -> Void,
+        open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
         reportError: @escaping (Error) -> Void = { error in
             let alert = NSAlert()
@@ -101,6 +103,7 @@ final class EdgeDockController: NSObject {
         primaryDisplayID = Self.displayID(for: NSScreen.main ?? NSScreen.screens.first)
         makePanel()
         refreshLayout()
+        installMouseMonitors()
 
         settingsCancellable = settings.objectWillChange
             .receive(on: RunLoop.main)
@@ -114,6 +117,17 @@ final class EdgeDockController: NSObject {
 
     func refreshLayout() {
         refreshLayout(animated: true)
+    }
+
+    /// Returns the projected card frame in screen coordinates without opening
+    /// the deck. The editor uses this as the source frame for its transition.
+    func cardScreenFrame(for id: String) -> NSRect? {
+        guard let screen = retainedScreen(), let dockView else { return nil }
+        guard let index = dockView.visibleNoteIndex(for: id) else { return nil }
+        let expanded = frame(for: screen, expanded: true)
+        let card = (phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose)
+            ? dockView.displayCardFrame(at: index) : dockView.cardFrame(at: index, width: expanded.width)
+        return NSRect(x: expanded.minX + card.minX, y: expanded.minY + card.minY, width: card.width, height: card.height)
     }
 
     private func refreshLayout(animated: Bool) {
@@ -130,6 +144,8 @@ final class EdgeDockController: NSObject {
 
         let frame = frame(for: screen, expanded: phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose)
         setPanelFrame(panel, to: frame, animated: animated)
+        dockView.anchorY = self.frame(for: screen, expanded: false).midY - frame.minY
+        refreshHitRegion()
         panel.collectionBehavior = settings.collectionBehavior
         if visible && !panel.isVisible { panel.orderFrontRegardless() }
     }
@@ -139,9 +155,11 @@ final class EdgeDockController: NSObject {
         visible = isVisible
         if isVisible {
             panel?.orderFrontRegardless()
+            updatePointerInteraction()
         } else {
             cancelTransitions()
             phaseMachine.hideImmediately()
+            panel?.ignoresMouseEvents = true
             panel?.orderOut(nil)
         }
     }
@@ -150,29 +168,25 @@ final class EdgeDockController: NSObject {
         guard visible else { setVisible(true); return }
         if phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose {
             cancelTransitions()
-            phaseMachine.hideImmediately()
-            refreshLayout()
+            phaseMachine.pointerExited()
+            scheduleClose(delay: 0)
         } else {
             cancelTransitions()
+            dockView?.prepareDeckEntry()
             phaseMachine.showImmediately()
-            refreshLayout()
+            refreshLayout(animated: false)
+            dockView?.animateDeckEntry()
         }
     }
 
     /// Re-evaluates the display after a display arrangement change.
     func displayConfigurationChanged() { refreshLayout() }
 
-    private func setPanelFrame(_ panel: NSPanel, to frame: NSRect, animated: Bool) {
+    private func setPanelFrame(_ panel: NSPanel, to frame: NSRect, animated _: Bool) {
         guard panel.frame != frame else { return }
-        if !animated || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            panel.setFrame(frame, display: true, animate: false)
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = phaseMachine.phase == .expanded ? 0.18 : 0.14
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(frame, display: true)
-        }
+        // The panel bounds change instantly; the layer transform below slides
+        // the fan, so the cards never stretch while the window resizes.
+        panel.setFrame(frame, display: true, animate: false)
     }
 
     private func makePanel() {
@@ -189,12 +203,46 @@ final class EdgeDockController: NSObject {
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
+        panel.ignoresMouseEvents = true
         panel.collectionBehavior = settings.collectionBehavior
 
         let view = DockView(controller: self)
         panel.contentView = view
         self.panel = panel
         self.dockView = view
+    }
+
+    private func installMouseMonitors() {
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            MainActor.assumeIsolated { self?.updatePointerInteraction() }
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updatePointerInteraction() }
+        }
+    }
+
+    fileprivate func refreshHitRegion() {
+        guard let panel, let dockView else { return }
+        panel.ignoresMouseEvents = !visible || (!dockView.isDragging && !dockView.interactiveContains(screenPoint: NSEvent.mouseLocation, in: panel))
+    }
+
+    fileprivate func updatePointerInteraction() {
+        guard visible, let panel, let dockView else { return }
+        let screenPoint = NSEvent.mouseLocation
+        if dockView.isDragging {
+            panel.ignoresMouseEvents = false
+            return
+        }
+        let inside = dockView.interactiveContains(screenPoint: screenPoint, in: panel)
+        panel.ignoresMouseEvents = !inside
+        if inside {
+            dockView.updateHover(screenPoint: screenPoint, in: panel)
+            if phaseMachine.phase == .collapsed { entered() } else { keepOpen() }
+        } else if phaseMachine.phase == .expanded || phaseMachine.phase == .pendingClose || phaseMachine.phase == .pendingOpen {
+            exited()
+        }
     }
 
     private func retainedScreen() -> NSScreen? {
@@ -212,8 +260,8 @@ final class EdgeDockController: NSObject {
             let height = DockView.collapsedHeight
             let y = visibleFrame.minY + (visibleFrame.height * anchor) - (height / 2)
             let x = settings.edge == "left"
-                ? visibleFrame.minX - 1
-                : visibleFrame.maxX - DockView.collapsedWidth + 1
+                ? visibleFrame.minX
+                : visibleFrame.maxX - DockView.collapsedWidth
             return NSRect(
                 x: x,
                 y: min(max(y, visibleFrame.minY), visibleFrame.maxY - height),
@@ -224,7 +272,7 @@ final class EdgeDockController: NSObject {
 
         let cardHeight = DockView.cardHeight
         let overlap = DockView.cardOverlap
-        let visibleCount = min(DockView.maxVisibleCards, max(1, store.active.count))
+        let visibleCount = min(dockView?.visibleCardLimit ?? DockView.maxVisibleCards, max(1, store.active.count))
         let desiredHeight = DockView.plusHeight + DockView.cardPadding * 2
             + cardHeight + CGFloat(max(0, visibleCount - 1)) * overlap
         let height = min(max(desiredHeight, DockView.collapsedHeight), visibleFrame.height)
@@ -239,6 +287,7 @@ final class EdgeDockController: NSObject {
         guard visible else { return }
         cancelClose()
         if phaseMachine.phase == .pendingClose {
+            dockView?.cancelDeckAnimation()
             phaseMachine.showImmediately()
             refreshLayout()
             return
@@ -250,15 +299,19 @@ final class EdgeDockController: NSObject {
 
     fileprivate func exited() {
         guard visible else { return }
+        let wasExpanded = phaseMachine.phase == .expanded
         cancelOpen()
         phaseMachine.pointerExited()
-        guard phaseMachine.phase == .pendingClose else { return }
+        guard wasExpanded, phaseMachine.phase == .pendingClose else { return }
         scheduleClose()
     }
 
     fileprivate func keepOpen() {
         cancelClose()
-        if phaseMachine.phase == .pendingClose { phaseMachine.showImmediately() }
+        if phaseMachine.phase == .pendingClose {
+            dockView?.cancelDeckAnimation()
+            phaseMachine.showImmediately()
+        }
     }
 
     private func scheduleOpen() {
@@ -267,23 +320,32 @@ final class EdgeDockController: NSObject {
         let token = transitionToken
         let delay = max(0, settings.openDelay)
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.transitionToken == token else { return }
+            guard let self, self.transitionToken == token, self.phaseMachine.phase == .pendingOpen else { return }
+            self.dockView?.prepareDeckEntry()
             self.phaseMachine.openDelayElapsed()
-            self.refreshLayout()
+            self.refreshLayout(animated: false)
+            self.dockView?.animateDeckEntry()
         }
         openWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func scheduleClose() {
+    private func scheduleClose(delay requestedDelay: Double? = nil) {
         closeWork?.cancel()
         transitionToken += 1
         let token = transitionToken
-        let delay = max(0, settings.closeDelay)
+        let delay = max(0, requestedDelay ?? settings.closeDelay)
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.transitionToken == token else { return }
-            self.phaseMachine.closeDelayElapsed()
-            self.refreshLayout()
+            self.dockView?.animateDeckExit()
+            let finish = DispatchWorkItem { [weak self] in
+                guard let self, self.transitionToken == token else { return }
+                self.phaseMachine.closeDelayElapsed()
+                self.refreshLayout(animated: false)
+            }
+            self.closeWork = finish
+            let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : Theme.Motion.deckClose
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: finish)
         }
         closeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -296,6 +358,7 @@ final class EdgeDockController: NSObject {
         transitionToken += 1
         cancelOpen()
         cancelClose()
+        dockView?.cancelDeckAnimation()
     }
 
     private static func displayID(for screen: NSScreen?) -> CGDirectDisplayID? {
@@ -319,7 +382,7 @@ final class EdgeDockController: NSObject {
 
     fileprivate func didClick(note: Note, at screenPoint: NSPoint) {
         keepOpen()
-        openNote(note.id, screenPoint)
+        openNote(note.id, cardScreenFrame(for: note.id) ?? NSRect(origin: screenPoint, size: NSSize(width: DockView.cardWidth, height: DockView.cardHeight)))
     }
 
     fileprivate func didClickCreate() {
@@ -418,16 +481,26 @@ private final class DockView: NSView {
 
     static let collapsedWidth: CGFloat = 30
     static let collapsedHeight: CGFloat = 108
-    static let expandedWidth: CGFloat = 332
-    static let cardWidth: CGFloat = 286
-    static let cardHeight: CGFloat = 94
-    static let cardOverlap: CGFloat = 55
-    static let cardPadding: CGFloat = 12
-    static let plusHeight: CGFloat = 38
-    static let maxVisibleCards = 8
+    static let expandedWidth: CGFloat = 254
+    static let cardWidth: CGFloat = 224
+    static let cardHeight: CGFloat = 170
+    static let cardOverlap: CGFloat = 74
+    static let cardPadding: CGFloat = 14
+    static let plusHeight: CGFloat = 44
+    static let plusDiameter: CGFloat = 28
+    static let tabWidth: CGFloat = 40
+    static let peekDistance: CGFloat = 160
+    static let maxVisibleCards = 5
 
     weak var controller: EdgeDockController?
-    var notes: [Note] = [] { didSet { needsDisplay = true } }
+    var notes: [Note] = [] {
+        didSet {
+            if notes.map(\.id) != oldValue.map(\.id) { resetHover() }
+            let ids = Set(notes.map(\.id))
+            previewCache = previewCache.filter { ids.contains($0.key) }
+            needsDisplay = true
+        }
+    }
     var edge: Edge = .right { didSet { needsDisplay = true } }
     var visibleCardLimit = maxVisibleCards
     var scrollLimit = 0
@@ -440,6 +513,15 @@ private final class DockView: NSView {
     private var dragTargetIndex: Int?
     private var draggingGrip = false
     private var plusPressed = false
+    private var visualHoveredIndex: Int?
+    private var hoverProgress: CGFloat = 0
+    private var hoverTarget: CGFloat = 0
+    private var hoverWork: DispatchWorkItem?
+    private var deckWork: DispatchWorkItem?
+    private var deckProgress: CGFloat = 1
+    private var previewCache: [String: (body: String, text: NSAttributedString)] = [:]
+    fileprivate var anchorY: CGFloat = collapsedHeight / 2
+    private var plusHovered = false
     private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
@@ -469,9 +551,26 @@ private final class DockView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // The panel itself is small and only this view receives events; no
-        // transparent full-screen event catcher is involved.
-        return bounds.contains(point) ? self : nil
+        containsInteraction(point) ? self : nil
+    }
+
+    fileprivate func interactiveContains(screenPoint: NSPoint, in panel: NSPanel) -> Bool {
+        containsInteraction(panel.convertPoint(fromScreen: screenPoint))
+    }
+
+    private func containsInteraction(_ point: NSPoint) -> Bool {
+        guard bounds.contains(point) else { return false }
+        if dockHitRect.contains(point) { return true }
+        guard isExpanded else { return false }
+        return plusPath.contains(point) || visibleNotes.indices.contains { cardPath(at: $0).contains(point) }
+    }
+
+    fileprivate func updateHover(screenPoint: NSPoint, in panel: NSPanel) {
+        guard isExpanded else { return }
+        let point = panel.convertPoint(fromScreen: screenPoint)
+        let plus = plusPath.contains(point)
+        if plus != plusHovered { plusHovered = plus; needsDisplay = true }
+        setHoveredIndex(cardIndex(at: point))
     }
 
     override func accessibilityChildren() -> [Any] {
@@ -481,6 +580,42 @@ private final class DockView: NSView {
         }
         children.append(DockAccessibilityAction(owner: self, kind: .grip))
         return children
+    }
+
+    fileprivate func prepareDeckEntry() {
+        deckWork?.cancel()
+        resetHover()
+        deckProgress = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
+    }
+
+    fileprivate func animateDeckEntry() { animateDeck(to: 1, duration: Theme.Motion.deckOpen) }
+    fileprivate func animateDeckExit() { animateDeck(to: 0, duration: Theme.Motion.deckClose) }
+    fileprivate func cancelDeckAnimation() { animateDeck(to: 1, duration: Theme.Motion.deckOpen) }
+
+    private func animateDeck(to target: CGFloat, duration: Double) {
+        deckWork?.cancel()
+        let start = deckProgress
+        guard start != target, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            deckProgress = target
+            needsDisplay = true
+            return
+        }
+        stepDeck(from: start, to: target, began: CACurrentMediaTime(), duration: duration)
+    }
+
+    private func stepDeck(from start: CGFloat, to target: CGFloat, began: Double, duration: Double) {
+        let t = min(1, (CACurrentMediaTime() - began) / duration)
+        let eased = 1 - pow(1 - t, 3)
+        deckProgress = start + (target - start) * eased
+        needsDisplay = true
+        controller?.refreshHitRegion()
+        guard t < 1 else { deckWork = nil; return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.stepDeck(from: start, to: target, began: began, duration: duration)
+        }
+        deckWork = work
+        // Repaint only during the short transition; no idle polling.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1 / 60, execute: work)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -495,27 +630,19 @@ private final class DockView: NSView {
         }
     }
 
-    override func mouseEntered(with event: NSEvent) { controller?.entered() }
+    override func mouseEntered(with event: NSEvent) { controller?.updatePointerInteraction() }
 
     override func mouseExited(with event: NSEvent) {
         if draggingGrip || dragIndex != nil { return }
-        controller?.exited()
+        controller?.updatePointerInteraction()
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        guard isExpanded else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        let newIndex = cardIndex(at: point)
-        if hoveredIndex != newIndex {
-            hoveredIndex = newIndex
-            needsDisplay = true
-        }
-        controller?.keepOpen()
-    }
+    override func mouseMoved(with event: NSEvent) { controller?.updatePointerInteraction() }
 
     override func scrollWheel(with event: NSEvent) {
         guard isExpanded, scrollLimit > 0 else { return }
         if abs(event.scrollingDeltaY) < 0.01 { return }
+        resetHover()
         scrollIndex = min(scrollLimit, max(0, scrollIndex + (event.scrollingDeltaY > 0 ? -1 : 1)))
         needsDisplay = true
         controller?.keepOpen()
@@ -559,6 +686,7 @@ private final class DockView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard dragStart != nil else { return }
         defer {
             dragStart = nil
             dragIndex = nil
@@ -566,6 +694,7 @@ private final class DockView: NSView {
             dragTargetIndex = nil
             draggingGrip = false
             plusPressed = false
+            controller?.refreshHitRegion()
             needsDisplay = true
         }
 
@@ -585,6 +714,7 @@ private final class DockView: NSView {
             return
         }
         if plusPressed {
+            guard plusPath.contains(point) else { return }
             controller?.didClickCreate()
             return
         }
@@ -606,6 +736,8 @@ private final class DockView: NSView {
         controller?.phase == .expanded || controller?.phase == .pendingClose
     }
 
+    fileprivate var isDragging: Bool { draggingGrip || dragIndex != nil || plusPressed }
+
     private var visibleNotes: [Note] {
         guard notes.isEmpty == false else { return [] }
         let start = min(scrollIndex, max(0, notes.count - 1))
@@ -620,106 +752,127 @@ private final class DockView: NSView {
     }
 
     private func drawCollapsed() {
-        let rect = NSRect(x: edge == .left ? 5 : 7, y: 8, width: 14, height: bounds.height - 16)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.9).setFill()
-        path.fill()
-        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
-        path.lineWidth = 0.5
-        path.stroke()
-
-        let active = notes
-        guard active.isEmpty == false else {
-            NSColor.secondaryLabelColor.setFill()
-            NSBezierPath(ovalIn: NSRect(x: rect.midX - 2, y: rect.midY - 2, width: 4, height: 4)).fill()
+        let width: CGFloat = 10
+        let rect = NSRect(x: edge == .left ? -5 : bounds.width - width, y: anchorY - 44, width: width + 5, height: 88)
+        guard !notes.isEmpty else {
+            Theme.nsColor(0).setFill()
+            NSBezierPath(roundedRect: NSRect(x: rect.minX, y: anchorY - 18, width: rect.width, height: 36), xRadius: 5, yRadius: 5).fill()
             return
         }
-        let gap: CGFloat = active.count > 40 ? 0 : 2
-        let segmentHeight = max(0.7, min(13, (rect.height - gap * CGFloat(active.count - 1)) / CGFloat(active.count)))
-        let total = segmentHeight * CGFloat(active.count) + gap * CGFloat(active.count - 1)
-        var y = rect.midY + total / 2 - segmentHeight
-        for note in active {
-            let segment = NSRect(x: rect.minX + 2, y: y, width: rect.width - 4, height: segmentHeight)
+        let gap: CGFloat = notes.count < 30 ? 2 : 0
+        let segmentHeight = min(18, max(0.2, (rect.height - gap * CGFloat(notes.count - 1)) / CGFloat(notes.count)))
+        let total = segmentHeight * CGFloat(notes.count) + gap * CGFloat(notes.count - 1)
+        var y = anchorY + total / 2 - segmentHeight
+        for note in notes {
             Theme.nsColor(note.colorIndex).setFill()
-            NSBezierPath(roundedRect: segment, xRadius: 3, yRadius: 3).fill()
+            NSBezierPath(roundedRect: NSRect(x: rect.minX, y: y, width: rect.width, height: segmentHeight), xRadius: 5, yRadius: 5).fill()
             y -= segmentHeight + gap
         }
-        drawGrip(at: edge == .left ? rect.maxX + 2 : rect.minX - 2, y: rect.midY)
+        drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
     }
 
     private func drawDeck() {
-        let panel = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
-        let surface = NSBezierPath(roundedRect: panel.insetBy(dx: 3, dy: 3), xRadius: 15, yRadius: 15)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.4).setFill()
-        surface.fill()
-
         let rendered = renderedNotes
         // Draw lower cards last so each upper title strip remains visible.
-        for index in rendered.indices {
+        for index in rendered.indices where index != visualHoveredIndex || hoverProgress == 0 {
             drawCard(rendered[index], at: index, highlighted: false)
         }
-        if let hoveredIndex, rendered.indices.contains(hoveredIndex) {
-            drawCard(rendered[hoveredIndex], at: hoveredIndex, highlighted: true)
+        if let visualHoveredIndex, rendered.indices.contains(visualHoveredIndex), hoverProgress > 0 {
+            drawCard(rendered[visualHoveredIndex], at: visualHoveredIndex, highlighted: true)
         }
-        drawGrip(at: edge == .left ? bounds.width - 8 : 8, y: bounds.midY)
+        drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
 
         let plus = plusFrame
-        NSColor.controlAccentColor.withAlphaComponent(0.88).setFill()
-        NSBezierPath(roundedRect: plus, xRadius: 10, yRadius: 10).fill()
-        let plusAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 18, weight: .medium),
-            .foregroundColor: NSColor.white
-        ]
-        "+".draw(in: plus, withAttributes: plusAttributes)
+        NSColor(white: plusHovered ? 1 : 0.94, alpha: 0.98).setFill()
+        plusPath.fill()
+        NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
+        plusPath.lineWidth = 0.5
+        plusPath.stroke()
+        NSImage(systemSymbolName: "plus", accessibilityDescription: "Create note")?.draw(in: plus.insetBy(dx: 8, dy: 8))
     }
 
     private func drawCard(_ note: Note, at index: Int, highlighted: Bool) {
-        let base = cardFrame(at: index)
-        var rect = base
-        if highlighted { rect.origin.x += edge == .left ? 7 : -7 }
-        let path = NSBezierPath(roundedRect: rect, xRadius: 13, yRadius: 13)
-        NSColor.black.withAlphaComponent(highlighted ? 0.18 : 0.1).setFill()
-        path.fill()
-        let card = rect.offsetBy(dx: 0, dy: highlighted ? 3 : 1)
-        let cardPath = NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12)
+        let rect = displayCardFrame(at: index)
+        let cardPath = NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(highlighted ? 0.24 : 0.12)
+        shadow.shadowBlurRadius = highlighted ? 16 : 8
+        shadow.shadowOffset = NSSize(width: 0, height: highlighted ? -8 : -4)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
         Theme.nsColor(note.colorIndex).setFill()
         cardPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
 
-        let gripX = edge == .left ? card.minX + 9 : card.maxX - 9
-        NSColor.labelColor.withAlphaComponent(0.22).setFill()
-        for dotIndex in 0..<3 {
-            NSBezierPath(ovalIn: NSRect(x: gripX - 1.5, y: card.midY - 8 + CGFloat(dotIndex) * 8, width: 3, height: 3)).fill()
-        }
-
-        let inset = card.insetBy(dx: 14, dy: 10)
+        NSGraphicsContext.saveGraphicsState()
+        cardPath.addClip()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         let title = note.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : note.title
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        NSGraphicsContext.saveGraphicsState()
+        let transform = NSAffineTransform()
+        transform.translateX(by: edge == .left ? rect.maxX - 20 : rect.minX + 20, yBy: rect.maxY - 16)
+        transform.rotate(byDegrees: edge == .left ? 90 : -90)
+        transform.concat()
+        let labelLength = highlighted || index == visibleNotes.count - 1 ? Self.cardHeight - 32 : Self.cardOverlap - 22
+        (title.uppercased() as NSString).draw(in: NSRect(x: edge == .left ? -labelLength : 0, y: -7, width: labelLength, height: 15), withAttributes: [
+            .font: Theme.roundedFont(size: 11, weight: .semibold),
+            .foregroundColor: NSColor.black.withAlphaComponent(0.5),
+            .kern: 0.8, .paragraphStyle: paragraph
+        ])
+        NSGraphicsContext.restoreGraphicsState()
+        guard highlighted else { return }
+        NSGraphicsContext.current?.cgContext.setAlpha(hoverProgress)
+        let inset = NSRect(x: rect.minX + (edge == .right ? 38 : 32), y: rect.minY + 16, width: Self.cardWidth - 64, height: Self.cardHeight - 32)
         let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+            .font: Theme.roundedFont(size: 15, weight: .semibold),
+            .paragraphStyle: paragraph,
             .foregroundColor: NSColor.labelColor
         ]
-        (title as NSString).draw(in: NSRect(x: inset.minX, y: inset.maxY - 18, width: inset.width - 24, height: 18), withAttributes: titleAttributes)
+        (title as NSString).draw(in: NSRect(x: inset.minX, y: inset.maxY - 26, width: inset.width - 28, height: 26), withAttributes: titleAttributes)
         if note.pinned {
-            NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Pinned")?.draw(in: NSRect(x: inset.maxX - 15, y: inset.maxY - 16, width: 13, height: 13))
+            NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Pinned")?.draw(in: NSRect(x: inset.maxX - 18, y: inset.maxY - 20, width: 16, height: 16))
         }
 
-        let preview = bodyPreview(note.body)
-        let bodyAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12),
-            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.82)
-        ]
-        (preview as NSString).draw(in: NSRect(x: inset.minX, y: inset.minY + 11, width: inset.width, height: 34), withAttributes: bodyAttributes)
         let timestampAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .font: Theme.roundedFont(size: 10),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.55)
         ]
-        (timestamp(note.updatedAt) as NSString).draw(in: NSRect(x: inset.minX, y: inset.minY - 1, width: inset.width, height: 14), withAttributes: timestampAttributes)
+        (timestamp(note.updatedAt) as NSString).draw(in: NSRect(x: inset.minX, y: inset.maxY - 48, width: inset.width, height: 16), withAttributes: timestampAttributes)
+        let bodyRect = NSRect(x: inset.minX, y: inset.minY, width: inset.width, height: inset.height - 68)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: bodyRect).addClip()
+        bodyPreview(note).draw(with: bodyRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+        NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func bodyPreview(_ body: String) -> String {
-        // Previewing the first small slice keeps repaint cost bounded for long notes.
-        let compact = String(body.prefix(180)).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        if compact.isEmpty { return "No text yet" }
-        return compact.count > 88 ? String(compact.prefix(85)) + "…" : compact
+    private func bodyPreview(_ note: Note) -> NSAttributedString {
+        if let cached = previewCache[note.id], cached.body == note.body { return cached.text }
+        let prefix = String(note.body.prefix(1200))
+        let result = NSMutableAttributedString(string: prefix)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 3
+        let whole = NSRange(location: 0, length: result.length)
+        result.addAttributes([
+            .font: Theme.roundedFont(size: 14),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.82),
+            .paragraphStyle: paragraph
+        ], range: whole)
+        let tasks = ChecklistEngine.tasks(in: prefix)
+        for task in tasks.reversed() {
+            if task.isChecked {
+                result.addAttributes([
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                    .foregroundColor: NSColor.labelColor.withAlphaComponent(0.52)
+                ], range: task.contentRange)
+            }
+            let glyph = task.isChecked ? "☑ " : "☐ "
+            result.replaceCharacters(in: task.markerRange, with: glyph)
+        }
+        previewCache[note.id] = (note.body, result)
+        return result
     }
 
     private var renderedNotes: [Note] {
@@ -734,7 +887,7 @@ private final class DockView: NSView {
     }
 
     private func drawGrip(at x: CGFloat, y: CGFloat) {
-        NSColor.secondaryLabelColor.withAlphaComponent(0.72).setFill()
+        NSColor.black.withAlphaComponent(0.22).setFill()
         for column in 0..<2 {
             for row in 0..<3 {
                 let dot = NSRect(x: x + CGFloat(column) * 4 - 2, y: y - 7 + CGFloat(row) * 7, width: 2.5, height: 2.5)
@@ -747,33 +900,105 @@ private final class DockView: NSView {
         Self.timestampFormatter.string(from: Date(timeIntervalSince1970: value))
     }
 
-    private func cardFrame(at index: Int) -> NSRect {
-        let x = edge == .left ? 38 : bounds.width - Self.cardWidth - 38
+    fileprivate func cardFrame(at index: Int, width: CGFloat? = nil) -> NSRect {
+        let contentWidth = width ?? bounds.width
+        let stagger = CGFloat(min(index, 4)) * 2
+        let exposed = Self.tabWidth + stagger
+        let x = edge == .left ? exposed - Self.cardWidth : contentWidth - exposed
         let y = Self.plusHeight + Self.cardPadding + CGFloat(max(0, visibleNotes.count - index - 1)) * Self.cardOverlap
         return NSRect(x: x, y: y, width: Self.cardWidth, height: Self.cardHeight)
     }
 
+    fileprivate func displayCardFrame(at index: Int) -> NSRect {
+        var frame = cardFrame(at: index)
+        let stagger = CGFloat(index) * 0.035
+        let progress = min(1, max(0, (deckProgress - stagger) / (1 - stagger)))
+        let slide = (1 - progress) * (Self.cardWidth + 24)
+        let lift = visualHoveredIndex == index ? Self.peekDistance * hoverProgress : 0
+        frame.origin.x += (edge == .left ? -1 : 1) * (slide - lift)
+        return frame
+    }
+
+    fileprivate func visibleNoteIndex(for id: String) -> Int? {
+        visibleNotes.firstIndex { $0.id == id }
+    }
+
     private var plusFrame: NSRect {
-        let x = edge == .left ? 38 : bounds.width - 38 - 52
-        return NSRect(x: x, y: 10, width: 52, height: Self.plusHeight)
+        let x = edge == .left ? 9 : bounds.width - 9 - Self.plusDiameter
+        return NSRect(x: x, y: (Self.plusHeight - Self.plusDiameter) / 2, width: Self.plusDiameter, height: Self.plusDiameter)
+    }
+
+    private var dockHitRect: NSRect {
+        NSRect(x: edge == .left ? 0 : bounds.width - 22, y: anchorY - 54, width: 22, height: 108)
+    }
+
+    private var plusPath: NSBezierPath {
+        let frame = plusFrame
+        return NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2)
+    }
+
+    private func cardPath(at index: Int) -> NSBezierPath {
+        NSBezierPath(roundedRect: displayCardFrame(at: index), xRadius: Theme.corner, yRadius: Theme.corner)
+    }
+
+    private func resetHover() {
+        hoverWork?.cancel()
+        hoveredIndex = nil
+        visualHoveredIndex = nil
+        hoverProgress = 0
+    }
+
+    private func setHoveredIndex(_ index: Int?) {
+        guard hoveredIndex != index else { return }
+        hoverWork?.cancel()
+        hoveredIndex = index
+        if let index {
+            if visualHoveredIndex != index { hoverProgress = 0 }
+            visualHoveredIndex = index
+        }
+        hoverTarget = index == nil ? 0 : 1
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            hoverProgress = hoverTarget
+            if hoverTarget == 0 { visualHoveredIndex = nil }
+            needsDisplay = true
+            return
+        }
+        stepHoverAnimation(from: hoverProgress, began: CACurrentMediaTime())
+    }
+
+    private func stepHoverAnimation(from start: CGFloat, began: Double) {
+        let t = min(1, (CACurrentMediaTime() - began) / Theme.Motion.hover)
+        let eased = 1 - pow(1 - t, 3)
+        hoverProgress = start + (hoverTarget - start) * eased
+        needsDisplay = true
+        controller?.refreshHitRegion()
+        guard t < 1 else {
+            if hoverTarget == 0 { visualHoveredIndex = nil }
+            hoverWork = nil
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.stepHoverAnimation(from: start, began: began) }
+        hoverWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1 / 60, execute: work)
     }
 
     private func cardIndex(at point: NSPoint) -> Int? {
         guard isExpanded else { return nil }
-        for index in visibleNotes.indices.reversed() where cardFrame(at: index).contains(point) { return index }
+        // The lifted sheet owns its whole visible body. Testing the old slots
+        // first would switch to a covered neighbour as the pointer moved down.
+        if let index = visualHoveredIndex, visibleNotes.indices.contains(index), cardPath(at: index).contains(point) { return index }
+        for index in visibleNotes.indices.reversed() where cardPath(at: index).contains(point) { return index }
         return nil
     }
 
     private func targetIndex(at point: NSPoint) -> Int? {
         guard let source = dragIndex, visibleNotes.indices.contains(source) else { return nil }
-        var target: Int?
-        for index in visibleNotes.indices {
-            let frame = cardFrame(at: index)
-            if point.y >= frame.midY { target = index; break }
+        // Reorder by the exposed title strips, not the midpoint of a full sheet.
+        let target = visibleNotes.indices.min {
+            abs(point.y - (cardFrame(at: $0).maxY - Self.cardOverlap / 2)) <
+            abs(point.y - (cardFrame(at: $1).maxY - Self.cardOverlap / 2))
         }
-        target = target ?? max(0, visibleNotes.count - 1)
-        if target == source { return nil }
-        return target
+        return target == source ? nil : target
     }
 
     private func reorderedIDs() -> [String]? {
@@ -788,8 +1013,8 @@ private final class DockView: NSView {
     }
 
     private func isGrip(_ point: NSPoint) -> Bool {
-        let x = edge == .left ? bounds.width - 5 : 0
-        return NSRect(x: x, y: bounds.midY - 20, width: 10, height: 40).contains(point)
+        let x = edge == .left ? 10 : bounds.width - 20
+        return NSRect(x: x, y: anchorY - 20, width: 10, height: 40).contains(point)
     }
 
     fileprivate func actionFrame(for kind: DockAccessibilityAction.Kind) -> NSRect {
@@ -800,7 +1025,7 @@ private final class DockView: NSView {
             guard let index = visibleNotes.firstIndex(where: { $0.id == id }) else { return .zero }
             return cardFrame(at: index)
         case .grip:
-            return NSRect(x: edge == .left ? bounds.width - 16 : 0, y: bounds.midY - 24, width: 16, height: 48)
+            return NSRect(x: edge == .left ? 8 : bounds.width - 24, y: anchorY - 24, width: 16, height: 48)
         }
     }
 

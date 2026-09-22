@@ -21,9 +21,9 @@ To regenerate the project after adding/removing source files, install XcodeGen (
 
 ## Use
 
-Hover at the right screen edge to open the note deck. Click a card to edit, or the plus to create a note. Drag the deck grip to move it vertically. The menu bar provides New Note, deck visibility, All Notes, floating-note visibility, Settings, backup, data-folder access, and Quit.
+Hover at the right screen edge to open the note deck. Click a card to edit, or the plus to create a note. Drag the deck grip to move it vertically. The menu bar provides New Note, deck visibility, floating-note visibility, Settings, backup, data-folder access, and Quit.
 
-A note can be pinned to stay open independently. Closing it unpins and returns it to the deck. Only one unpinned editor is open at a time. Complete checks unfinished tasks and archives the note. All Notes searches title and body and restores archived notes without changing their completed checklist markers.
+A note can be pinned to stay open independently. Closing it unpins and returns it to the deck. Only one unpinned editor is open at a time. Complete checks unfinished tasks and archives the note. Archived data remains saved; the All Notes browsing and restore interface has been removed.
 
 Use the note header to move a window. The five circles select the note color. Type `- ` or `* ` at a line start to begin a checklist; Return continues it and Return on an empty task exits. Checkboxes operate on the actual stored Markdown. Native editing supports standard copy/paste and undo/redo. Cmd+N creates a note, Cmd+W closes the current window, and Cmd+Z / Cmd+Shift+Z undo/redo while editing.
 

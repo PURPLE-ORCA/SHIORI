@@ -62,6 +62,17 @@ enum Theme {
         return NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
     }
     static func color(_ index: Int) -> Color { Color(nsColor: nsColor(index)) }
+    static func roundedFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let font = NSFont.systemFont(ofSize: size, weight: weight)
+        return font.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? font
+    }
+    static var bodyFont: NSFont { roundedFont(size: 16) }
+    enum Motion {
+        static let deckOpen = 0.24
+        static let deckClose = 0.28
+        static let hover = 0.18
+        static let editor = 0.28
+    }
     static let corner: CGFloat = 16
     static let editorSize = NSSize(width: 360, height: 400)
 }
