@@ -3,6 +3,7 @@ import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var privacy: PrivacyLock
     var shortcuts: GlobalShortcutCoordinator?
     @StateObject private var login = LaunchAtLoginService()
     let reset: () -> Void
@@ -16,6 +17,12 @@ struct SettingsView: View {
                     Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
                 }
                 if let error = login.error { Text(error).font(.caption).foregroundStyle(.red) }
+            }
+            Section("Privacy") {
+                Toggle("Require Touch ID to reveal SHIORI notes", isOn: Binding(get: { privacy.enabled }, set: { value in Task { await privacy.setEnabled(value) } }))
+                    .disabled(privacy.isAuthenticating)
+                if privacy.isLocked { Button("Unlock SHIORI") { privacy.perform {} }.disabled(privacy.isAuthenticating) }
+                if let error = privacy.error { Text(error).font(.caption).foregroundStyle(.secondary) }
             }
             Section("Typography") {
                 Picker("Note Font", selection: $settings.noteFont) {

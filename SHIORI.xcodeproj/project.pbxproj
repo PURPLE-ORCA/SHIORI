@@ -32,6 +32,8 @@
 		B8DB883C05626D8839896021 /* GlobalShortcutCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A104583AF30F9D10564FAEB4 /* GlobalShortcutCoordinator.swift */; };
 		C16AF2D17A3859D354D45F7D /* EdgeDockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */; };
 		D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2CD883F06BBF4F2797852FF /* NativeEditor.swift */; };
+		EC4C318980007AAF44060D41 /* PrivacyMotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC8760D8DCD772A16E37CE1 /* PrivacyMotionTests.swift */; };
+		F76EE7DD7EB072F09D778433 /* PrivacyLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C65263B4A290F6346C035C2 /* PrivacyLock.swift */; };
 		F93D7202410F4BF27A1FEC9C /* LaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD332B635643125D7EFCE77 /* LaunchAtLoginService.swift */; };
 /* End PBXBuildFile section */
 
@@ -55,8 +57,10 @@
 		414E55F50766B9264F89BB9C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		537C80AD478C3743725FF672 /* AutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutosaveTests.swift; sourceTree = "<group>"; };
 		54059C9427E63965DF09A38C /* ChecklistEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistEngine.swift; sourceTree = "<group>"; };
+		5DC8760D8DCD772A16E37CE1 /* PrivacyMotionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyMotionTests.swift; sourceTree = "<group>"; };
 		602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFormattingEngine.swift; sourceTree = "<group>"; };
 		6B93148A9FAC120C6F5D2BAA /* DockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTests.swift; sourceTree = "<group>"; };
+		6C65263B4A290F6346C035C2 /* PrivacyLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyLock.swift; sourceTree = "<group>"; };
 		7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
 		8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeDockController.swift; sourceTree = "<group>"; };
 		80798EE414F27B985C6F563A /* SHIORI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SHIORI.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -112,6 +116,7 @@
 				2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */,
 				DB28C998EDA1C5435EE5A3B7 /* MilestoneTests.swift */,
 				BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */,
+				5DC8760D8DCD772A16E37CE1 /* PrivacyMotionTests.swift */,
 			);
 			name = SHIORITests;
 			path = Tests/SHIORITests;
@@ -142,6 +147,7 @@
 				F2CD883F06BBF4F2797852FF /* NativeEditor.swift */,
 				E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */,
 				414E55F50766B9264F89BB9C /* NotesStore.swift */,
+				6C65263B4A290F6346C035C2 /* PrivacyLock.swift */,
 				EEB677952F45787ED67901C9 /* QuickSearchController.swift */,
 				B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */,
 				BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */,
@@ -266,6 +272,7 @@
 				D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */,
 				1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */,
 				3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */,
+				F76EE7DD7EB072F09D778433 /* PrivacyLock.swift in Sources */,
 				9C0B172A822DA2C3561A2CA7 /* QuickSearchController.swift in Sources */,
 				AB03EC102FCDDFC9AD48DD08 /* SettingsStore.swift in Sources */,
 				990F9A85D163AEAC6838AC66 /* StickyWindowManager.swift in Sources */,
@@ -282,6 +289,7 @@
 				1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */,
 				9CE467724DF7301836015F3F /* MilestoneTests.swift in Sources */,
 				78DB85F53876A3C31E92F0E9 /* PersistenceTests.swift in Sources */,
+				EC4C318980007AAF44060D41 /* PrivacyMotionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

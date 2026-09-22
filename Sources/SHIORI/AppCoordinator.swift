@@ -19,11 +19,13 @@ struct SHIORIMain {
 final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static let logger = Logger(subsystem: "app.shiori.desktop", category: "application")
     let settings: SettingsStore
+    let privacy: PrivacyLock
+    private(set) var lifecycleInstalled = false
+    private var started = false
     let dataFolder: URL
     var store: NotesStore?
     var windows: StickyWindowManager?
     var edgeTabs: [CGDirectDisplayID: EdgeDockController] = [:]
-    var dock: EdgeDockController? { edgeTabs.values.first }
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
     var subscriptions = Set<AnyCancellable>()
@@ -31,17 +33,26 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var shortcuts: GlobalShortcutCoordinator?
     var terminating = false
 
-    init(settings suppliedSettings: SettingsStore? = nil) {
+    init(settings suppliedSettings: SettingsStore? = nil, authenticator: NoteAuthenticator? = nil) {
         let override = ProcessInfo.processInfo.environment["SHIORI_DATA_DIR"]
         dataFolder = override.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("app.shiori.desktop", isDirectory: true)
         if let suppliedSettings { settings = suppliedSettings }
         else if let suite = ProcessInfo.processInfo.environment["SHIORI_DEFAULTS_SUITE"], let defaults = UserDefaults(suiteName: suite) { settings = SettingsStore(defaults: defaults) }
         else { settings = SettingsStore() }
+        privacy = PrivacyLock(defaults: settings.defaults, authenticator: authenticator ?? TouchIDAuthenticator())
         super.init()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard NSClassFromString("XCTestCase") == nil, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        guard !started else { return }; started = true
         installMenus()
+        privacy.reportUnavailable = { message in
+            let alert = NSAlert()
+            alert.messageText = "SHIORI is locked"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
         shortcuts = GlobalShortcutCoordinator(namespace: ProcessInfo.processInfo.environment["SHIORI_DEFAULTS_SUITE"] ?? "shiori") { [weak self] command in
             switch command {
             case .newNote: self?.newNote()
@@ -56,16 +67,39 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.windows?.refreshVisibility()
             }
         }.store(in: &subscriptions)
-        NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.didWakeNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        installLifecycleObservers()
     }
+    func installLifecycleObservers() {
+        guard !lifecycleInstalled else { return }
+        lifecycleInstalled = true
+        NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            workspace.addObserver(self, selector: #selector(displaysChanged), name: name, object: nil)
+        }
+        workspace.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
+            workspace.addObserver(self, selector: #selector(relock), name: name, object: nil)
+        }
+        workspace.addObserver(self, selector: #selector(applicationActivated), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+    }
+    func removeLifecycleObservers() {
+        NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        lifecycleInstalled = false
+    }
+    @objc func applicationActivated(_ notification: Notification) {
+        // The public workspace activation event also covers the login/lock screen becoming frontmost.
+        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+           app.bundleIdentifier == "com.apple.loginwindow" { relock() }
+    }
+    @objc func relock() { privacy.lock() }
+    @objc func unlockNotes() { privacy.perform {} }
     func installMenus() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("Unlock SHIORI", #selector(unlockNotes), ""), ("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
@@ -99,8 +133,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 settings.initialized = true
             }
             store = loaded
-            let manager = StickyWindowManager(store: loaded, settings: settings, reportError: { [weak self] error in self?.present(error) })
+            let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, reportError: { [weak self] error in self?.present(error) })
             windows = manager
+            manager.edgeFrame = { [weak self] id, screen in
+                guard let self else { return nil }
+                let display = EdgeDockController.displayID(for: screen ?? NSScreen.main)
+                return display.flatMap { self.edgeTabs[$0]?.returnFrame(for: id) } ?? self.edgeTabs.values.first?.returnFrame(for: id)
+            }
             synchronizeEdgeTabs()
             manager.restorePinned()
             do { _ = try await repository.backupIfNeeded(in: dataFolder.appendingPathComponent("Backups")) }
@@ -124,7 +163,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for screen in screens {
             guard let id = EdgeDockController.displayID(for: screen) else { continue }
             if edgeTabs[id] == nil {
-                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id,
+                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id, privacy: privacy,
                     open: { [weak windows] noteID, frame in windows?.open(noteID, near: nil, from: frame) },
                     create: { [weak self] in self?.createNote(on: screen) })
             }
@@ -133,6 +172,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func newNote() {
+        if privacy.isLocked { privacy.perform { [weak self] in self?.newNote() }; return }
         createNote(on: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main)
     }
 
@@ -141,37 +181,39 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let store else { return }
         Task {
             do {
-                try await windows?.closeTransient()
+                if let current = windows?.transient { try await store.flush(current) }
                 let note = try await store.create()
-                windows?.open(note.id, near: point, focusTitle: true)
+                let source = EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() }
+                windows?.open(note.id, near: point, focusTitle: true, from: source)
             } catch { present(error) }
         }
     }
     @objc func quickSearch() {
         guard let store else { return }
         if searchController == nil {
-            searchController = QuickSearchController(store: store, settings: settings, open: { [weak self] id in self?.windows?.open(id, near: nil) }, create: { [weak self] in self?.newNote() })
+            searchController = QuickSearchController(store: store, settings: settings, privacy: privacy, open: { [weak self] id in self?.windows?.open(id, near: nil) }, create: { [weak self] in self?.newNote() })
         }
         searchController?.show()
     }
     @objc func toggleFloating() { windows?.toggleHidden() }
     func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.first { $0.action == #selector(unlockNotes) }?.isHidden = !privacy.isLocked
         menu.items.first { $0.action == #selector(toggleFloating) }?.title = windows?.hidden == true ? "Show Floating Notes" : "Hide Floating Notes"
     }
     @objc func displaysChanged() { synchronizeEdgeTabs(); windows?.clampWindows(); windows?.refreshVisibility() }
     @objc func willSleep() {
+        relock()
         windows?.saveAllGeometry()
         Task { do { try await store?.flush() } catch { Self.logger.error("Sleep flush failed; draft retained") } }
     }
     func applicationWillTerminate(_ notification: Notification) {
         edgeTabs.values.forEach { $0.stop() }
         edgeTabs.removeAll()
-        NotificationCenter.default.removeObserver(self)
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        removeLifecycleObservers()
     }
     @objc func showSettings() {
         if settingsWindow == nil {
-            settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 460, height: 560), content: SettingsView(settings: settings, shortcuts: shortcuts, reset: { [weak self] in
+            settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 460, height: 560), content: SettingsView(settings: settings, privacy: privacy, shortcuts: shortcuts, reset: { [weak self] in
                 self?.settings.resetPositions(); self?.edgeTabs.values.forEach { $0.refreshLayout() }; self?.windows?.resetPositions()
             }))
         }

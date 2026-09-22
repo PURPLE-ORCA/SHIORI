@@ -14,8 +14,8 @@ final class DeleteUndoCoordinator {
         panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.backgroundColor = .clear
         panel.level = .floating; panel.hidesOnDeactivate = false; panel.hasShadow = true
         panel.collectionBehavior = behavior
-        panel.contentView = NSHostingView(rootView: DeleteToastView {
-            guard self.generation == token else { return }
+        panel.contentView = NSHostingView(rootView: DeleteToastView { [weak self] in
+            guard let self, self.generation == token else { return }
             self.expiry?.cancel()
             do { try await undo(); if self.generation == token { self.dismiss() } }
             catch { reportError(error) }
@@ -27,7 +27,7 @@ final class DeleteUndoCoordinator {
             self?.dismiss()
         }
     }
-    func dismiss() { generation = UUID(); expiry?.cancel(); expiry = nil; panel?.orderOut(nil); panel = nil }
+    func dismiss() { generation = UUID(); expiry?.cancel(); expiry = nil; panel?.close(); panel?.contentView = nil; panel = nil }
 }
 
 private final class ToastPanel: NSPanel {

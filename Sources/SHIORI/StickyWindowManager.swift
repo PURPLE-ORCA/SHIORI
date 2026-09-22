@@ -1,8 +1,20 @@
 import AppKit
 import SwiftUI
+import QuartzCore
+import Combine
 
 final class StickyPanel: NSPanel {
     var requestClose: (() -> Void)?
+    var requestUnlock: (() -> Void)?
+    var privacyLocked = false
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if privacyLocked, responder != nil { return false }
+        return super.makeFirstResponder(responder)
+    }
+    override func sendEvent(_ event: NSEvent) {
+        if privacyLocked, event.type == .keyDown || event.type == .leftMouseDown { requestUnlock?(); return }
+        super.sendEvent(event)
+    }
     override func performClose(_ sender: Any?) { requestClose?() }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -13,25 +25,49 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     let store: NotesStore
     let settings: SettingsStore
     let reportError: (Error) -> Void
+    let privacy: PrivacyLock?
+    private var privacySubscription: AnyCancellable?
     var windows: [String: StickyPanel] = [:]
     var transient: String?
     var hidden = false
     private let deleteUndo = DeleteUndoCoordinator()
     private var geometryTasks: [String: Task<Void, Never>] = [:]
     private var opening: Task<Void, Never>?
+    private var transitions: [String: Task<Void, Never>] = [:]
+    private var closing = Set<String>()
+    private var stableFrames: [String: NSRect] = [:]
+    var edgeFrame: ((String, NSScreen?) -> NSRect?)?
+    var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    var transitioningCount: Int { transitions.count }
 
-    init(store: NotesStore, settings: SettingsStore, reportError: @escaping (Error) -> Void) {
-        self.store = store; self.settings = settings; self.reportError = reportError
+    init(store: NotesStore, settings: SettingsStore, privacy: PrivacyLock? = nil, reportError: @escaping (Error) -> Void) {
+        self.store = store; self.settings = settings; self.privacy = privacy; self.reportError = reportError
+        super.init()
+        privacySubscription = privacy?.$isLocked.sink { [weak self] locked in
+            guard let self else { return }
+            for (id, window) in self.windows {
+                window.privacyLocked = locked
+                let content = window.contentView as? PrivateNoteContent
+                content?.color = Theme.nsColor(self.store.note(id: id)?.colorIndex ?? 0)
+                content?.setLocked(locked)
+            }
+        }
     }
     func open(_ id: String, near point: NSPoint?, focusTitle: Bool = false, from cardFrame: NSRect? = nil) {
+        if let privacy, privacy.isLocked {
+            privacy.perform { [weak self] in self?.open(id, near: point, focusTitle: focusTitle, from: cardFrame) }
+            return
+        }
         let previous = opening
         opening = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             do {
+                await self.transitions[id]?.value
                 guard let note = self.store.notes.first(where: { $0.id == id }), note.archivedAt == nil, note.deletedAt == nil else { return }
                 if !note.pinned { try await self.closeTransient(except: id); self.transient = id }
                 self.show(id, near: point, focusTitle: focusTitle, from: cardFrame)
+                await self.transitions[id]?.value
             } catch { self.reportError(error) }
         }
     }
@@ -61,10 +97,45 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
         window.delegate = self
         window.requestClose = { [weak self] in self?.close(id) }
-        window.contentView = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, id: id, focusTitle: focusTitle,
+        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
+        if let privacy {
+            let unlock: () -> Void = { [weak privacy] in privacy?.perform {} }
+            let content = PrivateNoteContent(editor: editor, color: Theme.nsColor(store.note(id: id)?.colorIndex ?? 0), unlock: unlock)
+            window.contentView = content
+            content.setLocked(privacy.isLocked)
+            window.privacyLocked = privacy.isLocked
+            window.requestUnlock = unlock
+        } else { window.contentView = editor }
         windows[id] = window
-        if activate { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) } else { window.orderFrontRegardless() }
+        if activate, let source = cardFrame ?? edgeFrame?(id, window.screen) {
+            let reduced = reduceMotion()
+            stableFrames[id] = frame
+            if !reduced { window.setFrame(source, display: false) }
+            window.alphaValue = 0
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            transitions[id] = Task { [weak self, weak window] in
+                guard let self, let window else { return }
+                await self.animate(window, to: frame, alpha: 1, duration: focusTitle ? Theme.Motion.create : Theme.Motion.editorOpen)
+                self.stableFrames.removeValue(forKey: id)
+                self.transitions.removeValue(forKey: id)
+                let recovered = WindowGeometry.clamp(window.frame, to: NSScreen.screens.map(\.visibleFrame))
+                if recovered != window.frame { window.setFrame(recovered, display: true) }
+            }
+        } else if activate { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+        else { window.orderFrontRegardless() }
+    }
+
+    private func animate(_ window: NSWindow, to frame: NSRect, alpha: CGFloat, duration: Double) async {
+        await withCheckedContinuation { continuation in
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Theme.Motion.duration(duration, reduceMotion: reduceMotion())
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                window.animator().setFrame(frame, display: true)
+                window.animator().alphaValue = alpha
+            } completionHandler: { continuation.resume() }
+        }
     }
     func restorePinned() {
         for note in store.notes where note.pinned && note.archivedAt == nil && note.deletedAt == nil { show(note.id, near: nil, focusTitle: false, activate: false) }
@@ -72,36 +143,42 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     func closeTransient(except id: String? = nil) async throws {
         if let current = transient, current != id {
             try await store.flush(current)
-            dismiss(current)
+            await dismiss(current)
         }
     }
     func close(_ id: String) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.close(id) }; return }
         Task {
+            await transitions[id]?.value
             do {
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: false)
-                dismiss(id)
+                await dismiss(id)
             } catch { reportError(error) }
         }
     }
     func togglePin(_ id: String) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.togglePin(id) }; return }
         Task {
+            await transitions[id]?.value
             do {
                 guard let note = store.notes.first(where: { $0.id == id }) else { return }
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: !note.pinned)
-                if note.pinned { dismiss(id) } else { transient = nil; saveGeometry(id) }
+                if note.pinned { await dismiss(id) } else { transient = nil; saveGeometry(id) }
             } catch { reportError(error) }
         }
     }
     func delete(_ id: String) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.delete(id) }; return }
         windows[id]?.makeFirstResponder(nil)
         let screen = windows[id]?.screen ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
         let wasVisible = windows[id]?.isVisible == true
         Task {
+            await transitions[id]?.value
             do {
                 try await store.delete(id)
-                dismiss(id)
+                await dismiss(id, returningToEdge: false)
                 deleteUndo.show(on: screen, behavior: settings.collectionBehavior, undo: { [weak self] in
                     guard let self else { return }
                     try await self.store.undoDelete(id)
@@ -112,14 +189,34 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             } catch { reportError(error) }
         }
     }
-    private func dismiss(_ id: String) {
+    private func dismiss(_ id: String, returningToEdge: Bool = true) async {
+        if closing.contains(id) { await transitions[id]?.value; return }
+        await transitions[id]?.value
         guard let window = windows[id] else { return }
         saveGeometry(id)
         geometryTasks.removeValue(forKey: id)?.cancel()
-        window.delegate = nil
-        window.close()
-        windows.removeValue(forKey: id)
-        if transient == id { transient = nil }
+        closing.insert(id)
+        stableFrames[id] = window.frame
+        window.ignoresMouseEvents = true
+        window.makeFirstResponder(nil)
+        let target = edgeFrame?(id, window.screen)
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if returningToEdge, window.isVisible, let target {
+                await self.animate(window, to: self.reduceMotion() ? window.frame : target, alpha: 0, duration: Theme.Motion.editorClose)
+            }
+            window.delegate = nil
+            window.close()
+            window.contentView = nil
+            window.requestClose = nil; window.requestUnlock = nil
+            self.windows.removeValue(forKey: id)
+            self.stableFrames.removeValue(forKey: id)
+            self.closing.remove(id)
+            if self.transient == id { self.transient = nil }
+            self.transitions.removeValue(forKey: id)
+        }
+        transitions[id] = task
+        await task.value
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if let id = sender.identifier?.rawValue { close(id) }
@@ -128,17 +225,18 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { scheduleGeometry(notification) }
     func windowDidResize(_ notification: Notification) { scheduleGeometry(notification) }
     private func scheduleGeometry(_ notification: Notification) {
-        guard let id = (notification.object as? NSWindow)?.identifier?.rawValue else { return }
+        guard let id = (notification.object as? NSWindow)?.identifier?.rawValue, stableFrames[id] == nil else { return }
         geometryTasks[id]?.cancel()
         geometryTasks[id] = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
             self?.saveGeometry(id)
+            self?.geometryTasks.removeValue(forKey: id)
         }
     }
     func saveGeometry(_ id: String) {
         guard let window = windows[id] else { return }
         let display = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")].map { String(describing: $0) }
-        settings.saveFrame(window.frame, id: id, display: display)
+        settings.saveFrame(stableFrames[id] ?? window.frame, id: id, display: display)
     }
     func saveAllGeometry() { for id in windows.keys { saveGeometry(id) } }
     func toggleHidden() {
@@ -149,7 +247,8 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     }
     func refreshVisibility() { for window in windows.values { window.collectionBehavior = settings.collectionBehavior } }
     func clampWindows() {
-        for window in windows.values {
+        for (id, window) in windows {
+            guard stableFrames[id] == nil else { continue }
             let frame = WindowGeometry.clamp(window.frame, to: NSScreen.screens.map(\.visibleFrame))
             if frame != window.frame { window.setFrame(frame, display: true) }
         }
@@ -184,7 +283,8 @@ struct StickyEditorView: View {
     let delete: () -> Void
     @FocusState private var titleFocused: Bool
     @State private var bodyFocus = false
-    @State private var editor: ChecklistTextView?
+    private final class EditorReference { weak var view: ChecklistTextView? }
+    @State private var editor = EditorReference()
     @State private var formatting = false
     private var note: Note? { store.notes.first { $0.id == id } }
     var body: some View {
@@ -216,7 +316,7 @@ struct StickyEditorView: View {
                 .padding(.top, 12)
                 .overlay(alignment: .top) { HeaderDragArea().frame(height: 12).accessibilityLabel("Move note") }
                 NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus, bodyFont: settings.bodyFont)
-                    .connecting { editor = $0 }
+                    .connecting { editor.view = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 9) {
                     ForEach(0..<5) { index in
@@ -240,7 +340,7 @@ struct StickyEditorView: View {
                                 ForEach(MarkdownFormat.allCases, id: \.rawValue) { format in
                                     Button(format.rawValue) {
                                         formatting = false
-                                        editor?.formatText(format)
+                                        editor.view?.formatText(format)
                                     }.buttonStyle(.plain).padding(5)
                                 }
                             }.padding(8)

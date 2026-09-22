@@ -1,17 +1,24 @@
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class QuickSearchController: NSObject, NSWindowDelegate {
     private var panel: SearchPanel?
+    let privacy: PrivacyLock?
+    private var privacySubscription: AnyCancellable?
+    var isVisible: Bool { panel?.isVisible == true }
     let settings: SettingsStore
     let store: NotesStore
     let open: (String) -> Void
     let create: () -> Void
-    init(store: NotesStore, settings: SettingsStore, open: @escaping (String) -> Void, create: @escaping () -> Void) {
-        self.store = store; self.settings = settings; self.open = open; self.create = create
+    init(store: NotesStore, settings: SettingsStore, privacy: PrivacyLock? = nil, open: @escaping (String) -> Void, create: @escaping () -> Void) {
+        self.store = store; self.settings = settings; self.privacy = privacy; self.open = open; self.create = create
+        super.init()
+        privacySubscription = privacy?.$isLocked.sink { [weak self] locked in if locked { self?.dismiss() } }
     }
     func show() {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.show() }; return }
         dismiss()
         let panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 180), styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
@@ -19,7 +26,7 @@ final class QuickSearchController: NSObject, NSWindowDelegate {
         panel.level = .floating; panel.hidesOnDeactivate = true
         panel.delegate = self
         panel.collectionBehavior = settings.collectionBehavior
-        panel.contentView = NSHostingView(rootView: QuickSearchView(store: store, open: { [weak self] id in
+        panel.contentView = NSHostingView(rootView: QuickSearchView(store: store, privacy: privacy, open: { [weak self] id in
             self?.dismiss(); self?.open(id)
         }, create: { [weak self] in self?.dismiss(); self?.create() }, dismiss: { [weak self] in self?.dismiss() }, resize: { [weak panel] count in
             guard let panel else { return }
@@ -35,7 +42,10 @@ final class QuickSearchController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
-    func dismiss() { panel?.orderOut(nil); panel = nil }
+    func dismiss() {
+        let previous = panel; panel = nil
+        previous?.delegate = nil; previous?.close(); previous?.contentView = nil
+    }
     func windowDidResignKey(_ notification: Notification) { dismiss() }
 }
 
@@ -45,6 +55,7 @@ private final class SearchPanel: NSPanel {
 
 private struct QuickSearchView: View {
     @ObservedObject var store: NotesStore
+    let privacy: PrivacyLock?
     let open: (String) -> Void
     let create: () -> Void
     let dismiss: () -> Void
@@ -52,7 +63,7 @@ private struct QuickSearchView: View {
     @State private var query = ""
     @State private var selectedID: String?
     @FocusState private var focused: Bool
-    private var results: [Note] { store.search(query) }
+    private var results: [Note] { privacy?.search(query, in: store) ?? store.search(query) }
     var body: some View {
         VStack(spacing: 0) {
             HStack {
