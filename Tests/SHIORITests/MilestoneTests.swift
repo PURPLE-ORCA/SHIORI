@@ -118,8 +118,8 @@ final class MilestoneTests: XCTestCase {
         XCTAssertEqual(MarkdownFormattingEngine.edit(.link, text: link, selection: NSRange(location: 3, length: 0))?.selectionAfter, (link as NSString).range(of: "https://example.com"))
         XCTAssertEqual(MarkdownFormattingEngine.edit(.bold, text: "", selection: NSRange(location: 0, length: 0))?.selectionAfter, NSRange(location: 2, length: 0))
         XCTAssertNil(MarkdownFormattingEngine.edit(.bold, text: "😀", selection: NSRange(location: 1, length: 0)))
-        XCTAssertEqual(MarkdownFormattingEngine.bulletReturn(text: "- item", selection: NSRange(location: 6, length: 0))?.applying(to: "- item"), "- item\n- ")
-        XCTAssertNil(MarkdownFormattingEngine.bulletReturn(text: "- [ ] task", selection: NSRange(location: 10, length: 0)))
+        XCTAssertEqual(ChecklistEngine.returnEdit(in: "- item", selection: NSRange(location: 6, length: 0))?.applying(to: "- item"), "- item\n- ")
+        XCTAssertNotNil(ChecklistEngine.returnEdit(in: "- [ ] task", selection: NSRange(location: 10, length: 0)))
     }
 
     func testNativeFormattingUndoRedoAndMarkedTextSafety() {

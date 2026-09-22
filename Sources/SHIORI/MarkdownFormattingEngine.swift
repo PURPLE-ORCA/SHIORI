@@ -56,15 +56,4 @@ enum MarkdownFormattingEngine {
         }
     }
 
-    static func bulletReturn(text: String, selection: NSRange) -> ChecklistEngine.TextEdit? {
-        guard selection.length == 0, Range(selection, in: text) != nil else { return nil }
-        let source = text as NSString
-        let range = source.lineRange(for: selection)
-        let line = source.substring(with: range).trimmingCharacters(in: .newlines)
-        guard line.hasPrefix("- "), !line.hasPrefix("- [") else { return nil }
-        let empty = line == "- "
-        let replacement = empty ? "\n" : "\n- "
-        let target = empty ? NSRange(location: range.location, length: 2) : selection
-        return .init(range: target, replacement: replacement, selectionAfter: NSRange(location: target.location + replacement.utf16.count, length: 0))
-    }
 }

@@ -23,14 +23,15 @@ final class ChecklistTests: XCTestCase {
         XCTAssertEqual(edit.applying(to: text), "- [x] Déjeuner\n- [x] قهوة")
     }
 
-    func testBulletTriggerAndFenceGuard() throws {
-        let text = "- \n```\n- \n```"
-        let firstCaret = (text as NSString).range(of: "- ").location + 2
-        let firstEdit = try XCTUnwrap(ChecklistEngine.bulletTriggerEdit(in: text, selection: NSRange(location: firstCaret, length: 0)))
-        XCTAssertEqual(firstEdit.applying(to: text), "- [ ] \n```\n- \n```")
-
-        let fencedCaret = (text as NSString).range(of: "- ", options: [], range: NSRange(location: firstCaret + 1, length: text.utf16.count - firstCaret - 1)).location + 2
-        XCTAssertNil(ChecklistEngine.bulletTriggerEdit(in: text, selection: NSRange(location: fencedCaret, length: 0)))
+    func testListContinuationPreservesMarkersIndentationAndFencedCode() throws {
+        for (text, next) in [("- Café 😀", "- "), ("* one", "* "), ("+ one", "+ "), ("9. مرحباً", "10. "), ("  - [x] done", "  - [ ] ")] {
+            let edit = try XCTUnwrap(ChecklistEngine.returnEdit(in: text, selection: NSRange(location: text.utf16.count, length: 0)))
+            XCTAssertEqual(edit.applying(to: text), text + "\n" + next)
+        }
+        let fenced = "```\n- literal\n```"
+        let caret = (fenced as NSString).range(of: "literal").upperBound
+        XCTAssertNil(ChecklistEngine.returnEdit(in: fenced, selection: NSRange(location: caret, length: 0)))
+        XCTAssertNil(ChecklistEngine.indentEdit(in: "plain", selection: NSRange(location: 5, length: 0), outdent: false))
     }
 
     func testReturnContinuesNonEmptyTaskAndExitsEmptyTask() throws {
@@ -40,7 +41,7 @@ final class ChecklistTests: XCTestCase {
 
         let empty = "  * [ ] "
         let exit = try XCTUnwrap(ChecklistEngine.returnEdit(in: empty, selection: NSRange(location: empty.utf16.count, length: 0)))
-        XCTAssertEqual(exit.applying(to: empty), "  \n")
+        XCTAssertEqual(exit.applying(to: empty), "* [ ] ")
     }
 
     func testCompleteAllLeavesCheckedAndCodeUntouched() {
@@ -89,6 +90,46 @@ final class ChecklistTests: XCTestCase {
         attachment.name = "Native Markdown rendering"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testTypingListsContinuesVisibleEmptyItemsAndSupportsUndo() throws {
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 340, height: 240))
+        let window = NSWindow(contentRect: editor.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView = editor
+        editor.isRichText = false; editor.allowsUndo = true
+        defer { window.orderOut(nil) }
+        for (prefix, next) in [("- ", "- "), ("* ", "* "), ("1. ", "2. "), ("- [ ] ", "- [ ] "), ("- [x] ", "- [ ] ")] {
+            editor.string = ""
+            editor.setSelectedRange(NSRange(location: 0, length: 0))
+            editor.insertText(prefix, replacementRange: editor.selectedRange())
+            XCTAssertEqual(editor.string, prefix)
+            editor.insertText("Café 😀", replacementRange: editor.selectedRange())
+            let original = editor.string
+            editor.breakUndoCoalescing(); editor.undoManager?.removeAllActions()
+            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            XCTAssertEqual(editor.string, original + "\n" + next)
+            XCTAssertEqual(editor.selectedRange().location, editor.string.utf16.count)
+            let layout = try XCTUnwrap(editor.layoutManager)
+            layout.ensureLayout(for: editor.textContainer!)
+            let lastGlyph = layout.glyphIndexForCharacter(at: editor.string.utf16.count - 1)
+            XCTAssertFalse(layout.propertyForGlyph(at: lastGlyph).contains(.null))
+            editor.undoManager?.undo()
+            XCTAssertEqual(editor.string, original)
+            editor.undoManager?.redo()
+            XCTAssertEqual(editor.string, original + "\n" + next)
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+            editor.insertNewline(nil)
+            XCTAssertEqual(editor.string, original + "\n")
+        }
+        editor.string = "- first"; editor.setSelectedRange(NSRange(location: 7, length: 0))
+        editor.insertTab(nil)
+        XCTAssertEqual(editor.string, "  - first")
+        editor.insertBacktab(nil)
+        XCTAssertEqual(editor.string, "- first")
+        editor.setSelectedRange(NSRange(location: 2, length: 0))
+        editor.deleteBackward(nil)
+        XCTAssertEqual(editor.string, "first")
     }
 
     @MainActor

@@ -62,7 +62,7 @@ public struct NativeEditor: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 30, height: 10)
+        textView.textContainerInset = NSSize(width: 30, height: 6)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.typingAttributes = [
@@ -151,7 +151,7 @@ public struct NativeEditor: NSViewRepresentable {
 public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private var retainedStorage: NSTextStorage?
     private var hiddenSyntax = IndexSet()
-    private var bulletLocations: [Int] = []
+    private var listItems: [ChecklistEngine.ListItem] = []
     private var applyingPresentation = false
 
     public override init(frame frameRect: NSRect, textContainer container: NSTextContainer? = nil) {
@@ -218,12 +218,6 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         checkboxHits().map { ChecklistAccessibilityElement(owner: self, task: $0.task, rect: $0.rect) }
     }
 
-    override public func insertText(_ insertString: Any, replacementRange: NSRange) {
-        super.insertText(insertString, replacementRange: replacementRange)
-        guard !hasMarkedText(), let string = insertString as? String, string.contains(" ") else { return }
-        applyBulletTriggerIfNeeded()
-    }
-
     override public func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            let format = ["b": MarkdownFormat.bold, "i": .italic, "k": .link][event.charactersIgnoringModifiers ?? ""] {
@@ -243,9 +237,6 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
     }
 
     override public func insertNewline(_ sender: Any?) {
-        if !hasMarkedText(), let edit = MarkdownFormattingEngine.bulletReturn(text: string, selection: selectedRange()) {
-            apply(edit); return
-        }
         guard !hasMarkedText(),
               let edit = ChecklistEngine.returnEdit(in: string, selection: selectedRange())
         else {
@@ -265,8 +256,18 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         super.mouseDown(with: event)
     }
 
-    private func applyBulletTriggerIfNeeded() {
-        guard let edit = ChecklistEngine.bulletTriggerEdit(in: string, selection: selectedRange()) else { return }
+    override public func insertTab(_ sender: Any?) {
+        guard !hasMarkedText(), let edit = ChecklistEngine.indentEdit(in: string, selection: selectedRange(), outdent: false) else { super.insertTab(sender); return }
+        apply(edit)
+    }
+
+    override public func insertBacktab(_ sender: Any?) {
+        guard !hasMarkedText(), let edit = ChecklistEngine.indentEdit(in: string, selection: selectedRange(), outdent: true) else { super.insertBacktab(sender); return }
+        apply(edit)
+    }
+
+    override public func deleteBackward(_ sender: Any?) {
+        guard !hasMarkedText(), let edit = ChecklistEngine.removeListMarker(in: string, selection: selectedRange()) else { super.deleteBackward(sender); return }
         apply(edit)
     }
 
@@ -293,7 +294,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         let base: [NSAttributedString.Key: Any] = [.font: Theme.bodyFont, .foregroundColor: NSColor.black.withAlphaComponent(0.84), .paragraphStyle: paragraph]
         let presentation = MarkdownPresentation(source: string, baseAttributes: base)
         hiddenSyntax = presentation.hidden
-        bulletLocations = presentation.bullets
+        listItems = presentation.listItems
         let all = NSRange(location: 0, length: textStorage.length)
         // Only presentation attributes change here: no source replacements, binding writes or undo entries.
         textStorage.beginEditing()
@@ -307,12 +308,21 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
     }
 
     private func drawBullets() {
-        guard let layoutManager else { return }
+        guard let layoutManager, !string.isEmpty else { return }
         NSColor.black.withAlphaComponent(0.7).setFill()
-        for location in bulletLocations {
-            let glyph = layoutManager.glyphIndexForCharacter(at: location)
+        for item in listItems where !item.isChecklist {
+            let glyph = layoutManager.glyphIndexForCharacter(at: min(item.contentRange.location, string.utf16.count - 1))
             let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            NSBezierPath(ovalIn: NSRect(x: textContainerOrigin.x - 17, y: textContainerOrigin.y + line.midY - 2, width: 4, height: 4)).fill()
+            let x = textContainerOrigin.x + line.minX + layoutManager.location(forGlyphAt: glyph).x
+            let y = textContainerOrigin.y + line.midY
+            if Int(item.marker.dropLast()) != nil {
+                let attributes: [NSAttributedString.Key: Any] = [.font: Theme.roundedFont(size: 13), .foregroundColor: NSColor.black.withAlphaComponent(0.7)]
+                let label = item.marker as NSString
+                let size = label.size(withAttributes: attributes)
+                label.draw(at: NSPoint(x: x - size.width - 7, y: y - size.height / 2), withAttributes: attributes)
+            } else {
+                NSBezierPath(ovalIn: NSRect(x: x - 17, y: y - 2, width: 4, height: 4)).fill()
+            }
         }
     }
 
@@ -361,7 +371,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
             let glyphIndex = glyphRange.location
             let rect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let lineRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-            let checkbox = NSRect(x: origin.x - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
+            let checkbox = NSRect(x: lineRect.minX + layoutManager.location(forGlyphAt: glyphIndex).x - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
             result.append(CheckboxHit(task: task, rect: checkbox))
         }
         return result

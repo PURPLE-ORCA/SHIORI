@@ -5,13 +5,13 @@ import AppKit
 struct MarkdownPresentation {
     let text: NSAttributedString
     let hidden: IndexSet
-    let bullets: [Int]
+    let listItems: [ChecklistEngine.ListItem]
 
     init(source: String, baseAttributes: [NSAttributedString.Key: Any]) {
         let display = NSMutableAttributedString(string: source, attributes: baseAttributes)
         let nsSource = source as NSString
         var hidden = IndexSet()
-        var bullets = Set<Int>()
+        let items = ChecklistEngine.listItems(in: source)
         let tasks = ChecklistEngine.tasks(in: source)
         let baseFont = baseAttributes[.font] as? NSFont ?? Theme.bodyFont
         if let parsed = try? AttributedString(markdown: source, options: .init(appliesSourcePositionAttributes: true)) {
@@ -26,12 +26,6 @@ struct MarkdownPresentation {
                     switch component.kind {
                     case .header(let level): font = Theme.roundedFont(size: level == 1 ? 24 : 20, weight: .semibold)
                     case .codeBlock: font = .monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-                    case .unorderedList:
-                        let line = nsSource.lineRange(for: NSRange(location: range.location, length: 0))
-                        let prefix = nsSource.substring(with: NSRange(location: line.location, length: range.location - line.location))
-                        if prefix.trimmingCharacters(in: .whitespaces) == "-" || prefix.trimmingCharacters(in: .whitespaces) == "*" {
-                            if !tasks.contains(where: { $0.lineRange.location == line.location }) { bullets.insert(range.location) }
-                        }
                     default: break
                     }
                 }
@@ -52,14 +46,24 @@ struct MarkdownPresentation {
             // Keep every source line, including empty lines and trailing Return.
             for (index, unit) in source.utf16.enumerated() where unit == 10 || unit == 13 { hidden.remove(index) }
         }
+        for item in items {
+            hidden.insert(integersIn: item.markerRange.location..<item.contentRange.location)
+            hidden.remove(integersIn: item.lineRange.location..<item.markerRange.location)
+            // An empty item still needs a laid-out space for its marker and insertion caret.
+            if item.contentRange.length == 0, item.contentRange.location > NSMaxRange(item.markerRange) {
+                hidden.remove(item.contentRange.location - 1)
+            }
+            let paragraph = (baseAttributes[.paragraphStyle] as? NSParagraphStyle ?? .default).mutableCopy() as! NSMutableParagraphStyle
+            paragraph.headIndent = (item.indentation as NSString).size(withAttributes: [.font: baseFont]).width
+            display.addAttribute(.paragraphStyle, value: paragraph, range: item.lineRange)
+        }
         for task in tasks {
-            hidden.insert(integersIn: task.markerRange.location..<task.contentRange.location)
             if task.isChecked {
                 display.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: NSColor.black.withAlphaComponent(0.48)], range: task.contentRange)
             }
         }
         self.text = display
         self.hidden = hidden
-        self.bullets = bullets.sorted()
+        self.listItems = items
     }
 }

@@ -75,30 +75,52 @@ public enum ChecklistEngine {
         let fullRange: NSRange
     }
 
-    /// Returns all task lines outside fenced code blocks.
-    public static func tasks(in text: String) -> [Task] {
-        var result: [Task] = []
-        var fence: (marker: UInt16, length: Int)?
+    /// One source-based list model drives Return, indentation and visible list markers.
+    struct ListItem {
+        let lineRange: NSRange
+        let markerRange: NSRange
+        let contentRange: NSRange
+        let indentation: String
+        let marker: String
+        let nextPrefix: String
+        let isChecklist: Bool
+    }
 
-        for line in lines(in: text) {
-            if let fenceLine = fenceMarker(in: line.text) {
-                if let openFence = fence {
-                    if fenceLine.marker == openFence.marker,
-                       fenceLine.length >= openFence.length,
-                       fenceLine.trailingWhitespaceOnly {
-                        fence = nil
-                    }
-                } else {
-                    fence = (fenceLine.marker, fenceLine.length)
-                }
-                continue
+    private static let listPattern = try! NSRegularExpression(pattern: #"^([ \t]*)([-*+]|[0-9]{1,9}[.)])[ \t]+(.*)$"#)
+
+    static func listItems(in text: String) -> [ListItem] {
+        activeLines(in: text).compactMap { line in
+            if let task = parseTask(in: line) {
+                return ListItem(lineRange: task.lineRange, markerRange: task.markerRange, contentRange: task.contentRange,
+                    indentation: task.indentation, marker: String(task.bullet), nextPrefix: "\(task.indentation)\(task.bullet) [ ] ", isChecklist: true)
             }
-
-            guard fence == nil, let task = parseTask(in: line) else { continue }
-            result.append(task)
+            let source = line.text as NSString
+            guard let match = listPattern.firstMatch(in: line.text, range: NSRange(location: 0, length: source.length)) else { return nil }
+            let indentation = source.substring(with: match.range(at: 1))
+            let marker = source.substring(with: match.range(at: 2))
+            let nextMarker = Int(marker.dropLast()).map { "\($0 + 1)\(marker.suffix(1))" } ?? marker
+            let markerRange = match.range(at: 2)
+            let contentRange = match.range(at: 3)
+            return ListItem(lineRange: line.bodyRange,
+                markerRange: NSRange(location: line.bodyRange.location + markerRange.location, length: markerRange.length),
+                contentRange: NSRange(location: line.bodyRange.location + contentRange.location, length: contentRange.length),
+                indentation: indentation, marker: marker, nextPrefix: indentation + nextMarker + " ", isChecklist: false)
         }
+    }
 
-        return result
+    public static func tasks(in text: String) -> [Task] { activeLines(in: text).compactMap(parseTask) }
+
+    private static func activeLines(in text: String) -> [Line] {
+        var fence: (marker: UInt16, length: Int)?
+        return lines(in: text).filter { line in
+            if let fenceLine = fenceMarker(in: line.text) {
+                if let open = fence {
+                    if fenceLine.marker == open.marker, fenceLine.length >= open.length, fenceLine.trailingWhitespaceOnly { fence = nil }
+                } else { fence = (fenceLine.marker, fenceLine.length) }
+                return false
+            }
+            return fence == nil
+        }
     }
 
     public static func task(atUTF16Location location: Int, in text: String) -> Task? {
@@ -140,55 +162,37 @@ public enum ChecklistEngine {
         )
     }
 
-    /// Recognizes the moment the user types `- ` or `* ` on an otherwise empty
-    /// normal line. It intentionally does not rewrite arbitrary pasted text.
-    public static func bulletTriggerEdit(in text: String, selection: NSRange) -> TextEdit? {
-        guard selection.length == 0 else { return nil }
-        let location = max(0, min(selection.location, text.utf16.count))
-        guard let line = line(containingUTF16Location: location, in: text),
-              let bullet = bulletTrigger(in: line.text),
-              !isInsideFence(line, in: text)
-        else { return nil }
-
-        // A trigger is only valid when the caret is immediately after the
-        // single space. This excludes a later edit in a title or paragraph.
-        guard location == NSMaxRange(line.bodyRange) else { return nil }
-        let bulletOffset = line.bodyRange.location + bullet.offset
-        let range = NSRange(location: bulletOffset, length: 2)
-        let replacement = "\(bullet.character) [ ] "
-        let newLocation = location + replacement.utf16.count - range.length
-        return TextEdit(
-            range: range,
-            replacement: replacement,
-            selectionAfter: NSRange(location: newLocation, length: 0)
-        )
+    /// Continue the current list, resetting checked tasks and incrementing numbered items.
+    /// Return on an empty item outdents one level, or leaves the list at the root.
+    public static func returnEdit(in text: String, selection: NSRange) -> TextEdit? {
+        guard Range(selection, in: text) != nil,
+              let item = listItems(in: text).first(where: {
+                  selection.location >= $0.contentRange.location && NSMaxRange(selection) <= NSMaxRange($0.lineRange)
+              }) else { return nil }
+        let source = text as NSString
+        if source.substring(with: item.contentRange).trimmingCharacters(in: .whitespaces).isEmpty {
+            if !item.indentation.isEmpty { return indentEdit(in: text, selection: selection, outdent: true) }
+            return TextEdit(range: item.lineRange, replacement: "", selectionAfter: NSRange(location: item.lineRange.location, length: 0))
+        }
+        let replacement = "\n" + item.nextPrefix
+        return TextEdit(range: selection, replacement: replacement,
+            selectionAfter: NSRange(location: selection.location + replacement.utf16.count, length: 0))
     }
 
-    /// Produces the edit for Return in a task line. A non-empty task continues
-    /// the same bullet; an empty task removes its marker and leaves a plain
-    /// line, exiting checklist mode.
-    public static func returnEdit(in text: String, selection: NSRange) -> TextEdit? {
-        guard selection.length == 0,
-              let task = task(intersecting: selection, in: text)
-        else { return nil }
+    static func indentEdit(in text: String, selection: NSRange, outdent: Bool) -> TextEdit? {
+        guard selection.length == 0, let item = listItems(in: text).first(where: {
+            selection.location >= $0.lineRange.location && selection.location <= NSMaxRange($0.lineRange)
+        }) else { return nil }
+        let removed = outdent ? (item.indentation.hasPrefix("\t") ? 1 : min(2, item.indentation.utf16.count)) : 0
+        let replacement = outdent ? "" : "  "
+        return TextEdit(range: NSRange(location: item.lineRange.location, length: removed), replacement: replacement,
+            selectionAfter: NSRange(location: max(item.lineRange.location, selection.location + replacement.utf16.count - removed), length: 0))
+    }
 
-        if task.isEmpty {
-            let replacement = task.indentation + "\n"
-            let caret = task.lineRange.location + replacement.utf16.count
-            return TextEdit(
-                range: task.lineRange,
-                replacement: replacement,
-                selectionAfter: NSRange(location: caret, length: 0)
-            )
-        }
-
-        let replacement = "\n\(task.indentation)\(task.bullet) [ ] "
-        let caret = selection.location + replacement.utf16.count
-        return TextEdit(
-            range: selection,
-            replacement: replacement,
-            selectionAfter: NSRange(location: caret, length: 0)
-        )
+    static func removeListMarker(in text: String, selection: NSRange) -> TextEdit? {
+        guard selection.length == 0, let item = listItems(in: text).first(where: { $0.contentRange.location == selection.location }) else { return nil }
+        return TextEdit(range: NSRange(location: item.markerRange.location, length: item.contentRange.location - item.markerRange.location),
+            replacement: "", selectionAfter: NSRange(location: item.markerRange.location, length: 0))
     }
 
     /// Marks every recognized unfinished task complete, preserving all other
@@ -214,7 +218,7 @@ public enum ChecklistEngine {
         }
 
         guard offset + 4 < units.count,
-              units[offset] == 0x2D || units[offset] == 0x2A,
+              units[offset] == 0x2D || units[offset] == 0x2A || units[offset] == 0x2B,
               units[offset + 1] == 0x20,
               units[offset + 2] == 0x5B,
               units[offset + 4] == 0x5D
@@ -241,23 +245,10 @@ public enum ChecklistEngine {
             stateRange: NSRange(location: markerLocation + 3, length: 1),
             contentRange: NSRange(location: contentLocation, length: units.count - contentOffset),
             indentation: indentation,
-            bullet: units[offset] == 0x2D ? "-" : "*",
+            bullet: Character(UnicodeScalar(units[offset])!),
             isChecked: stateUnit == 0x78 || stateUnit == 0x58,
             content: content
         )
-    }
-
-    private static func bulletTrigger(in line: String) -> (character: Character, offset: Int)? {
-        let units = Array(line.utf16)
-        var offset = 0
-        while offset < units.count, units[offset] == 0x20 || units[offset] == 0x09 {
-            offset += 1
-        }
-        guard units.count == offset + 2,
-              units[offset] == 0x2D || units[offset] == 0x2A,
-              units[offset + 1] == 0x20
-        else { return nil }
-        return (units[offset] == 0x2D ? "-" : "*", offset)
     }
 
     private static func fenceMarker(in line: String) -> (marker: UInt16, length: Int, trailingWhitespaceOnly: Bool)? {
@@ -306,28 +297,4 @@ public enum ChecklistEngine {
         }
     }
 
-    private static func line(containingUTF16Location location: Int, in text: String) -> Line? {
-        let clamped = max(0, min(location, text.utf16.count))
-        return lines(in: text).first { line in
-            clamped >= line.bodyRange.location && clamped <= NSMaxRange(line.bodyRange)
-        }
-    }
-
-    private static func isInsideFence(_ target: Line, in text: String) -> Bool {
-        var fence: (marker: UInt16, length: Int)?
-        for line in lines(in: text) {
-            if line.bodyRange == target.bodyRange { return fence != nil }
-            guard let fenceLine = fenceMarker(in: line.text) else { continue }
-            if let openFence = fence {
-                if fenceLine.marker == openFence.marker,
-                   fenceLine.length >= openFence.length,
-                   fenceLine.trailingWhitespaceOnly {
-                    fence = nil
-                }
-            } else {
-                fence = (fenceLine.marker, fenceLine.length)
-            }
-        }
-        return false
-    }
 }
