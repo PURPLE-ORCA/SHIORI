@@ -80,7 +80,7 @@ public struct NativeEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .automatic
         scrollView.documentView = textView
-        onReady?(textView)
+        DispatchQueue.main.async { onReady?(textView) }
         context.coordinator.view = textView
         context.coordinator.lastText = text
         return scrollView
@@ -148,7 +148,43 @@ public struct NativeEditor: NSViewRepresentable {
 
 /// NSTextView subclass that draws task checkboxes from NSLayoutManager line
 /// fragments and routes interactions through ChecklistEngine edits.
-public final class ChecklistTextView: NSTextView {
+public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
+    private var retainedStorage: NSTextStorage?
+    private var hiddenSyntax = IndexSet()
+    private var bulletLocations: [Int] = []
+    private var applyingPresentation = false
+
+    public override init(frame frameRect: NSRect, textContainer container: NSTextContainer? = nil) {
+        // Checkbox drawing and source-index glyph hiding share one TextKit 1 layout manager.
+        let textContainer: NSTextContainer
+        if let container { textContainer = container }
+        else {
+            let storage = NSTextStorage()
+            retainedStorage = storage
+            let layout = NSLayoutManager()
+            textContainer = NSTextContainer(containerSize: NSSize(width: frameRect.width, height: .greatestFiniteMagnitude))
+            storage.addLayoutManager(layout)
+            layout.addTextContainer(textContainer)
+        }
+        super.init(frame: frameRect, textContainer: textContainer)
+        layoutManager?.backgroundLayoutEnabled = false
+        layoutManager?.delegate = self
+    }
+
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        layoutManager?.backgroundLayoutEnabled = false
+        layoutManager?.delegate = self
+    }
+
+    public func layoutManager(_ layoutManager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>, properties: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes: UnsafePointer<Int>, font: NSFont, forGlyphRange glyphRange: NSRange) -> Int {
+        guard !hasMarkedText(), !hiddenSyntax.isEmpty else { return 0 }
+        var adjusted = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length))
+        for index in adjusted.indices where hiddenSyntax.contains(characterIndexes[index]) { adjusted[index].insert(.null) }
+        layoutManager.setGlyphs(glyphs, properties: &adjusted, characterIndexes: characterIndexes, font: font, forGlyphRange: glyphRange)
+        return glyphRange.length
+    }
+
     private var cachedTasks: [ChecklistEngine.Task] = []
 
     private struct CheckboxHit {
@@ -159,8 +195,11 @@ public final class ChecklistTextView: NSTextView {
     override public var acceptsFirstResponder: Bool { true }
 
     override public func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
         super.draw(dirtyRect)
+        NSGraphicsContext.restoreGraphicsState()
         drawCheckboxes(in: dirtyRect)
+        drawBullets()
     }
 
     override public func didChangeText() {
@@ -246,24 +285,34 @@ public final class ChecklistTextView: NSTextView {
     }
 
     fileprivate func refreshChecklistAppearance() {
+        guard !applyingPresentation, !hasMarkedText(), let layoutManager, let textStorage else { return }
+        applyingPresentation = true
+        defer { applyingPresentation = false }
         cachedTasks = ChecklistEngine.tasks(in: string)
-        guard let layoutManager, let textStorage else { return }
+        let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
+        let base: [NSAttributedString.Key: Any] = [.font: Theme.bodyFont, .foregroundColor: NSColor.black.withAlphaComponent(0.84), .paragraphStyle: paragraph]
+        let presentation = MarkdownPresentation(source: string, baseAttributes: base)
+        hiddenSyntax = presentation.hidden
+        bulletLocations = presentation.bullets
         let all = NSRange(location: 0, length: textStorage.length)
-        if all.length > 0 {
-            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
-            layoutManager.removeTemporaryAttribute(.strikethroughStyle, forCharacterRange: all)
+        // Only presentation attributes change here: no source replacements, binding writes or undo entries.
+        textStorage.beginEditing()
+        presentation.text.enumerateAttributes(in: all) { attributes, range, _ in
+            textStorage.setAttributes(attributes, range: range)
         }
-        for task in cachedTasks where task.isChecked && task.contentRange.length > 0 {
-            layoutManager.addTemporaryAttribute(
-                .foregroundColor,
-                value: NSColor.black.withAlphaComponent(0.48),
-                forCharacterRange: task.contentRange
-            )
-            layoutManager.addTemporaryAttribute(
-                .strikethroughStyle,
-                value: NSUnderlineStyle.single.rawValue,
-                forCharacterRange: task.contentRange
-            )
+        textStorage.endEditing()
+        typingAttributes = base
+        layoutManager.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
+        needsDisplay = true
+    }
+
+    private func drawBullets() {
+        guard let layoutManager else { return }
+        NSColor.black.withAlphaComponent(0.7).setFill()
+        for location in bulletLocations {
+            let glyph = layoutManager.glyphIndexForCharacter(at: location)
+            let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            NSBezierPath(ovalIn: NSRect(x: textContainerOrigin.x - 17, y: textContainerOrigin.y + line.midY - 2, width: 4, height: 4)).fill()
         }
     }
 
@@ -305,7 +354,7 @@ public final class ChecklistTextView: NSTextView {
             guard task.markerRange.location < length,
                   NSLocationInRange(task.markerRange.location, visibleCharacters) else { continue }
             let glyphRange = layoutManager.glyphRange(
-                forCharacterRange: NSRange(location: task.markerRange.location, length: 1),
+                forCharacterRange: NSRange(location: min(task.contentRange.location, length - 1), length: 1),
                 actualCharacterRange: nil
             )
             guard glyphRange.length > 0, glyphRange.location < layoutManager.numberOfGlyphs else { continue }

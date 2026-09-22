@@ -20,6 +20,7 @@
 		7A57B3E9DB9EE87995AADB3E /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = DF73520FF79ACEFCA4F35842 /* KeyboardShortcuts */; };
 		7C0CCE81B9C258C8B25F48C7 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F4C8AFC21B475CEC178CE4EE /* GRDB */; };
 		7FE496B3FFFAE8835CF29F2E /* AutosaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537C80AD478C3743725FF672 /* AutosaveTests.swift */; };
+		83F6B8FD0960288F118B8BEA /* MarkdownPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DC377836C9FF1055F9605B /* MarkdownPresentation.swift */; };
 		8CC828ADA005737422428A1C /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 5D1B430C4FB2F2C2156E333D /* GRDB */; };
 		914AA2B45C9E733DE32DE8E5 /* LibraryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */; };
 		990F9A85D163AEAC6838AC66 /* StickyWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */; };
@@ -45,6 +46,7 @@
 
 /* Begin PBXFileReference section */
 		20991ECCDFD34CDA8C2001E8 /* SHIORITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SHIORITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20DC377836C9FF1055F9605B /* MarkdownPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPresentation.swift; sourceTree = "<group>"; };
 		2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViews.swift; sourceTree = "<group>"; };
 		2B3D2954DC78608B426185C7 /* ChecklistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistTests.swift; sourceTree = "<group>"; };
 		2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryTests.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 				FBD332B635643125D7EFCE77 /* LaunchAtLoginService.swift */,
 				2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */,
 				602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */,
+				20DC377836C9FF1055F9605B /* MarkdownPresentation.swift */,
 				F2CD883F06BBF4F2797852FF /* NativeEditor.swift */,
 				E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */,
 				414E55F50766B9264F89BB9C /* NotesStore.swift */,
@@ -244,6 +247,7 @@
 				F93D7202410F4BF27A1FEC9C /* LaunchAtLoginService.swift in Sources */,
 				914AA2B45C9E733DE32DE8E5 /* LibraryViews.swift in Sources */,
 				1DC027410277B291D377179F /* MarkdownFormattingEngine.swift in Sources */,
+				83F6B8FD0960288F118B8BEA /* MarkdownPresentation.swift in Sources */,
 				D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */,
 				1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */,
 				3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */,

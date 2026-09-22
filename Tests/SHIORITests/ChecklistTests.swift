@@ -53,6 +53,45 @@ final class ChecklistTests: XCTestCase {
     }
 
     @MainActor
+    func testMarkdownRendersWithoutChangingSourceOrUndoHistory() throws {
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 340))
+        let source = "# Heading\n**Café 😀** _italic_ ~~strike~~ `code`\n[link](https://example.com)\n- [ ] Do this\n- [x] مرحباً\n- bullet\n\n```\n**literal**\n```"
+        editor.isRichText = false; editor.allowsUndo = true
+        editor.textContainerInset = NSSize(width: 30, height: 10)
+        editor.string = source
+        editor.didChangeText()
+        let container = try XCTUnwrap(editor.textContainer)
+        container.containerSize = NSSize(width: 360, height: 340)
+        let layout = try XCTUnwrap(editor.layoutManager)
+        layout.ensureLayout(for: container)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let boldRange = (source as NSString).range(of: "Café 😀")
+        let font = try XCTUnwrap(storage.attribute(.font, at: boldRange.location, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(NSFontManager.shared.traits(of: font).contains(.boldFontMask))
+        let italicRange = (source as NSString).range(of: "italic")
+        let italic = try XCTUnwrap(storage.attribute(.font, at: italicRange.location, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(NSFontManager.shared.traits(of: italic).contains(.italicFontMask))
+        let heading = try XCTUnwrap(storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)
+        XCTAssertGreaterThan(heading.pointSize, Theme.bodyFont.pointSize)
+        let marker = layout.glyphIndexForCharacter(at: boldRange.location - 2)
+        XCTAssertTrue(layout.propertyForGlyph(at: marker).contains(.null))
+        let literal = (source as NSString).range(of: "**literal**")
+        XCTAssertFalse(layout.propertyForGlyph(at: layout.glyphIndexForCharacter(at: literal.location)).contains(.null))
+        XCTAssertEqual(editor.accessibilityChildren()?.count, 2)
+        XCTAssertEqual(editor.string, source)
+        XCTAssertFalse(editor.undoManager?.canUndo ?? false)
+        editor.backgroundColor = Theme.nsColor(0)
+        let bitmap = try XCTUnwrap(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
+        editor.cacheDisplay(in: editor.bounds, to: bitmap)
+        let image = NSImage(size: editor.bounds.size)
+        image.addRepresentation(bitmap)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "Native Markdown rendering"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testNativeCheckboxPressUsesUndo() throws {
         let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
         editor.string = "- [ ] Task"
