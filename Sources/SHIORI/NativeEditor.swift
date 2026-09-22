@@ -11,6 +11,7 @@ public struct NativeEditor: NSViewRepresentable {
     @Binding public var text: String
     private let focusBinding: Binding<Bool>?
     private let focusToken: Int?
+    private var onReady: ((ChecklistTextView) -> Void)?
     private let onTextChange: ((String) -> Void)?
 
     public init(
@@ -23,6 +24,12 @@ public struct NativeEditor: NSViewRepresentable {
         focusBinding = focus
         self.focusToken = focusToken
         self.onTextChange = onTextChange
+    }
+
+    func connecting(_ onReady: @escaping (ChecklistTextView) -> Void) -> Self {
+        var copy = self
+        copy.onReady = onReady
+        return copy
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -73,6 +80,7 @@ public struct NativeEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .automatic
         scrollView.documentView = textView
+        onReady?(textView)
         context.coordinator.view = textView
         context.coordinator.lastText = text
         return scrollView
@@ -177,7 +185,28 @@ public final class ChecklistTextView: NSTextView {
         applyBulletTriggerIfNeeded()
     }
 
+    override public func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           let format = ["b": MarkdownFormat.bold, "i": .italic, "k": .link][event.charactersIgnoringModifiers ?? ""] {
+            formatText(format)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    func formatText(_ format: MarkdownFormat) {
+        guard isEditable, !hasMarkedText(), let edit = MarkdownFormattingEngine.edit(format, text: string, selection: selectedRange()) else { return }
+        window?.makeFirstResponder(self)
+        breakUndoCoalescing()
+        apply(edit)
+        breakUndoCoalescing()
+        scrollRangeToVisible(selectedRange())
+    }
+
     override public func insertNewline(_ sender: Any?) {
+        if !hasMarkedText(), let edit = MarkdownFormattingEngine.bulletReturn(text: string, selection: selectedRange()) {
+            apply(edit); return
+        }
         guard !hasMarkedText(),
               let edit = ChecklistEngine.returnEdit(in: string, selection: selectedRange())
         else {
