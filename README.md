@@ -35,11 +35,19 @@ Quick Search searches current active titles and bodies, including unsaved drafts
 
 The editor's **Aa** popover inserts bold, italic, strikethrough, inline code, links, H1/H2, bullets and checklists. Cmd+B, Cmd+I and Cmd+K operate on the current selection. Cmd+K inside a Markdown link selects its destination for editing. Markdown renders directly in the native editor, including interactive checkboxes, while the stored body remains plain Markdown. Native undo/redo remains available. Return continues bullets, numbered lists and checklists; Return on an empty item ends the list (or outdents a nested item). Tab and Shift+Tab indent and outdent list items. Backspace at the start of an item removes its marker. Ordinary bullets stay separate from checklists.
 
-**Delete Note** is in the editor's compact actions menu. It flushes the latest draft, soft-deletes the row, closes the window and offers a five-second, non-key Undo toast. Undo preserves content, color, order and pin metadata. Deleted records remain in SQLite and stay absent from normal queries; there is no purge or trash UI.
+**Delete Note** is the editor’s compact trash icon. It flushes the latest draft, soft-deletes the row, closes the window and offers a five-second, non-key Undo toast. Undo preserves content, color, order and pin metadata. Deleted records remain in SQLite and stay absent from normal queries; there is no purge or trash UI.
 
 Settings → Typography selects one global note-body font: Architects Daughter (default), Indie Flower, Kalam or System, at 14–24 pt (default 16). Fonts and licenses are bundled; open editors update in place, with changes deferred until active IME composition finishes. Other interface text keeps its system font.
 
 Settings includes Launch at Login through [SMAppService.mainApp](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp). It reflects OS registration status and reports failures or required approval. The app does not modify login items during startup or tests.
+
+## Motion and privacy
+
+Notes open from their edge location and return there when closed/unpinned. Creation uses the relevant display’s plus location. Native window transitions last 240–270 ms; Reduce Motion uses a restrained fade. Hover depth settles without overshoot. Checkbox alignment follows the body font, with a brief checked-state highlight; text strikethrough remains static.
+
+Settings → Privacy enables one global Touch ID lock. Enabling verifies biometrics first; a fresh launch starts locked. Locked editors keep their windows, geometry and drafts behind a native cover, edge labels/previews are concealed, and Quick Search closes. Unlock SHIORI is available in the menu and locked surfaces. Authentication cancellation/failure keeps content hidden, and disabling the preference while locked also requires authentication. No database encryption is performed.
+
+Public workspace sleep, display-sleep and session-deactivation notifications relock SHIORI and cancel pending authentication. Login-window activation also relocks it. Immediate screen-lock delivery, real Touch ID, Spaces and full-screen behavior require physical QA; undocumented screen-lock notification names are deliberately not used.
 
 ## Data and safety
 
@@ -68,7 +76,7 @@ To recover a snapshot, quit SHIORI normally and preserve a copy of the entire da
 - `GlobalShortcutCoordinator`, `QuickSearchController`, `DeleteUndoCoordinator`, `LaunchAtLoginService`: focused adapters for the new utility commands.
 - `SettingsStore`: preferences and frame clamping.
 
-Screen changes and wake refresh existing panels, recover window geometry and retain the edge anchor. Display fallback is persisted; dragging to another display deliberately changes the retained display. Spaces/full-screen settings continue to govern note windows and edge tabs. Hover never activates SHIORI; explicit editing and search do.
+Screen changes and wake reconcile one set of edge tabs per connected display, recover stranded window geometry and retain the normalized edge anchor. Finished transitions recheck usable screen bounds; temporary animation frames are never saved as note positions. Spaces/full-screen settings continue to govern note windows and edge tabs. Hover never activates SHIORI; explicit editing and search do.
 
 ## Validation
 

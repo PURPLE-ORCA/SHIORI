@@ -1,3 +1,25 @@
+# Interaction polish and privacy — 2026-09-22
+
+Current automated evidence: **39 tests pass**, from a clean baseline of 37. Full app build is run after the suite.
+
+```sh
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build test
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath build build
+```
+
+- Retention fix: the editor formatting action holds a weak NSTextView reference; closed/deleted windows clear their content and callbacks. The deletion test waits for SwiftUI’s deferred release and verifies that the editor is deallocated.
+- Covered: monotonic motion/Reduce Motion decisions, repeated opens during transitions, saved final geometry after close, deletion releasing the editor, fake successful/cancelled/failed/unavailable authentication, stale success after relock, prompt deduplication, locked search/preview/accessibility redaction, pin/content preservation and idempotent lifecycle observers.
+- Two connected displays exercised by the existing reconciliation/window-reuse test, including simulated removal/readdition. Negative coordinates and valid-frame preservation remain covered.
+- Twelve repeated unlock/relock/simulated sleep/wake reconciliations kept native window counts stable. Resident memory changed from 160,727,040 to 161,071,104 bytes (~336 KiB) in the measured run. This is a short regression check, not a long-duration leak profile.
+- Native checklist images inspected for Architects Daughter, Indie Flower, Kalam and System. Checked text stays muted; strikethrough is static. No per-frame Markdown parsing was added for the checkbox highlight.
+- Real Touch ID and OS login-item state are never changed by automated tests. Databases and preferences are isolated.
+
+**Physical QA remains unverified:** repeated Space switching, native full-screen applications and both visibility toggles, actual monitor disconnect/reconnect, primary display/scaling/resolution/Dock changes, actual sleep/wake, and screen lock/unlock. Public session/display-sleep and login-window activation hooks are installed, but immediate screen-lock delivery is not guaranteed by a dedicated documented screen-lock notification. No undocumented notification names or private window APIs were added.
+
+---
+
+## Previous milestone evidence
+
 # UI correction follow-up — 2026-09-22
 
 - Restored the reference's thin resting stripes and hover collapse/expand behavior.

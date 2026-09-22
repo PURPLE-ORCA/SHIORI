@@ -11,7 +11,7 @@ SHIORI status: `✔︎ done` marks implemented functionality. Parentheses narrow
 **HoldMyNotes** is a minimalist, native macOS desktop productivity application designed around three foundational states:
 1. **The Edge Pill / Dock**: When resting, notes collapse into an unobtrusive vertical stripe/dock resting flush against the edge of the screen (right, left, or bottom). Each note is represented by a sliver in its distinct pastel color. — ✔︎ done (right/left edges only)
 2. **The Fanned Deck**: Moving the mouse to the screen edge smoothly fans out a stack of cards into view. Hovering over any card elevates it forward with realistic elevation shadows so you can read its content without opening it. — ✔︎ done (compact tabs with hover previews)
-3. **The Sticky Note / Editor Window**: Clicking a card expands it in place into a full-featured sticky note editor. Notes can either be closed back into the edge deck or pinned anywhere on the desktop as persistent floating windows. — ✔︎ done (native Markdown editor with plain-text storage; opens and closes without animation)
+3. **The Sticky Note / Editor Window**: Clicking a card expands it in place into a full-featured sticky note editor. Notes can either be closed back into the edge deck or pinned anywhere on the desktop as persistent floating windows. — ✔︎ done (native Markdown editor with plain-text storage; spatial native open/close transitions with Reduce Motion fallback)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -49,10 +49,10 @@ SHIORI status: `✔︎ done` marks implemented functionality. Parentheses narrow
 - **Activation Delay (`_deckOpenDelay`)**: Configurable delay (prevents accidental opens when sweeping past the edge). — ✔︎ done
 - **Fanning Animation**:
   - Cards smoothly stagger-slide out from behind the screen bezel into an overlapping vertical cascade. — ✔︎ done
-  - Uses fluid spring-physics animation with configurable speed ("How briskly the deck moves").
+  - Restrained, centrally tuned settling motion. — ✔︎ done (fixed values; no animation-speed setting)
 - **Card Preview & Shadow Elevation (`DeckCardShadow`, `DeckCardSlot`)**:
   - Hovering a specific card in the stack lifts that card forward along the Z-axis. — ✔︎ done
-  - Displays rich dynamic drop shadows while slightly dimming or pushing back adjacent cards.
+  - Stronger, tighter hover shadow and slightly farther inward lift, with smooth transitions between previews. — ✔︎ done (neighboring cards retain their positions)
   - Note title, timestamp, and content snippet are immediately readable without clicking. — ✔︎ done
 - **Card Reordering (`DragReorder`)**:
   - Dragging a card vertically within the fanned deck reorders its position in the stack. — ✔︎ done
@@ -60,7 +60,7 @@ SHIORI status: `✔︎ done` marks implemented functionality. Parentheses narrow
 
 ### 2.3 Creation Trigger (`BurstCreateCoordinator`, `CycleNoteButton`)
 - **Add Button (`+`)**: Positioned at the deck extremity (with hover highlight `_plusHovered`). — ✔︎ done (including animated entrance/exit)
-- **One-Click Instant Create**: Clicking `+` immediately generates a new blank card with an expansion animation that places the caret right into the title field. — ✔︎ done (creation and title focus; no create-from-button morph)
+- **One-Click Instant Create**: Clicking `+` immediately generates a new blank card with an expansion animation that places the caret right into the title field. — ✔︎ done (creation and title focus; native frame/fade transition from the relevant display’s create location)
 
 ---
 
@@ -88,7 +88,7 @@ When clicked, a card expands from the deck into an active desktop note card.
   - Enter or Tab shifts focus directly into the body text editor. — ✔︎ done
 - **Window Management Controls**:
   - **Pin Icon / Desktop Pin (`pinned`)**: Toggles between resting in the edge deck or staying pinned persistently on the desktop. — ✔︎ done
-  - **Close Dot (`CloseDot`)**: Returns the card to the deck (saves automatically). — ✔︎ done (close icon; closes without animation)
+  - **Close Dot (`CloseDot`)**: Returns the card to the deck (saves automatically). — ✔︎ done (close icon; returns spatially to the edge)
 
 ### 3.3 Body Editor (`ChecklistTextView`, `PlainTextEditor`)
 - **Zero-Friction Auto-Save**: No "Save" button. All keystrokes, title edits, color changes, and checklist state changes are written immediately to local SQLite storage with debounced disk commits. — ✔︎ done (debounced persistence, not an immediate disk write per keystroke)
@@ -151,7 +151,7 @@ The footer of an open note card contains a unified, compact control strip:
 4. **"Complete / Archive" Action**: Removed from the active UI; historical database fields remain for compatibility.
 5. **Delete Icon**: Simple trash button using soft Delete + Undo. — ✔︎ done
 6. **Compact Editor Chrome**: Date and Saved/Saving labels removed; reduced vertical padding. — ✔︎ done (save failures retain a retry control)
-7. **Close Control**: Located in the header; returns the note to its edge tab. — ✔︎ done (instant close; no animation)
+7. **Close Control**: Located in the header; returns the note to its edge tab. — ✔︎ done (spatial return to edge; Reduce Motion fade)
 
 ---
 
@@ -214,8 +214,10 @@ The footer of an open note card contains a unified, compact control strip:
 - No Toggle Dock or All Notes / Archive shortcut.
 
 ### 8.4 Security & Privacy (`_lockNotes`)
-- Optional biometric protection: "Hide note contents until you authenticate".
-- Integrates with Touch ID and macOS system authentication to reveal note text.
+- Global “Require Touch ID to reveal SHIORI notes” preference. — ✔︎ done (LocalAuthentication biometrics; no per-note locking or encryption)
+- Fresh launch starts locked; sleep/display-sleep/session deactivation relocks and invalidates in-flight authentication. — ✔︎ done (physical screen-lock delivery and Touch ID QA still required)
+- Locked editors retain drafts/windows behind a cover; edge titles/previews and search results are concealed. — ✔︎ done
+- Manual Unlock SHIORI, prompt deduplication, cancellation/failure handling and unavailable-biometric feedback. — ✔︎ done
 
 ### 8.5 Launch at Login — ✔︎ done
 - Settings uses ServiceManagement / SMAppService and reflects actual OS registration state.
