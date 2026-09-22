@@ -1,4 +1,42 @@
-# SHIORI desktop QA
+# Utility milestone — 2026-09-22
+
+Implementation and automated validation are complete. Interactive acceptance testing is assigned to the user; the historical record below is not evidence for the new features.
+
+- Baseline: **21 tests passed**, zero failures, before changes.
+- Final: **31 tests passed**, zero failures.
+- Actual app: `build/Build/Products/Debug/SHIORI.app`; Debug build succeeded.
+- Environment: Xcode 26.4 / Swift 6.3, Apple silicon, macOS 26.6.2; macOS 14 deployment target.
+- Dependency added: KeyboardShortcuts **3.0.1**, revision `49c3fc04ea827f816df67843bfcc57286b47ff06`, exact SPM pin and `Package.resolved`. GRDB remains **7.8.0**.
+- Migration added: `002_soft_delete`, nullable `deletedAt REAL`; no dropped columns, deleted rows or purge.
+
+Commands:
+
+```sh
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath build build
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath build test
+```
+
+The ten new tests cover live title/body/Unicode search, inactive filtering, draft-first delete/undo/reopen, rejection of stale writes and failed flushes, legacy database migration, Markdown transformations and Unicode boundaries, native NSTextView undo/redo and marked-text safety, shortcut defaults/persistence/reset/routing, fake login state/error handling, floating visibility without pin/geometry changes, and unchanged valid frames. Existing geometry tests cover negative/disconnected displays.
+
+No real login-item registration was changed by tests. Shortcut tests use unique names, remove their preference keys and do not register hotkeys. Databases are temporary; window preferences use isolated suites.
+
+## Manual QA still required
+
+- Global shortcuts while another app is active, recorder conflicts, and immediate shortcut changes.
+- Search focus, arrow navigation, resizing, dismissal and revealing one hidden pinned note without duplicate windows.
+- Delete toast placement/non-key behavior, successive deletes, Undo and quit/relaunch.
+- Formatting popover and shortcuts in actual editors, caret/selection, multiple undo/redo steps, Arabic/French/emoji and IME input.
+- Real Launch at Login registration/approval/unregistration and a login cycle.
+- Hide/Show across several pinned windows; edge tabs remaining visible.
+- Physical display disconnect/reconnect, resolution/scaling/arrangement changes, Dock/menu-bar movement, Spaces and full-screen settings.
+- Sleep/wake and final hover/preview/tab appearance, including Reduce Motion.
+- macOS 14 and Intel runtime behavior.
+
+No known automated regressions remain. Interactive appearance and OS behavior are unverified for this milestone. Existing uncommitted editor-animation changes were retained in the working tree; this build includes them. Relaunch the existing SHIORI instance to load the rebuilt app before QA.
+
+---
+
+# Historical desktop QA — before the utility milestone
 
 Manual QA was run on 2026-09-22 against the final frozen debug artifact:
 
