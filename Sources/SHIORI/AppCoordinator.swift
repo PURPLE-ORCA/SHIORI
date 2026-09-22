@@ -16,7 +16,7 @@ struct SHIORIMain {
 }
 
 @MainActor
-final class AppCoordinator: NSObject, NSApplicationDelegate {
+final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static let logger = Logger(subsystem: "app.shiori.desktop", category: "application")
     let settings: SettingsStore
     let dataFolder: URL
@@ -56,18 +56,22 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }.store(in: &subscriptions)
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.didWakeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displaysChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
     }
     func installMenus() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
+        menu.delegate = self
         statusItem.menu = menu
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem); appItem.submenu = menu.copy() as? NSMenu
+        appItem.submenu?.delegate = self
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         let edit = NSMenu(title: "Edit")
         for (title, selector, key) in [("Undo", Selector(("undo:")), "z"), ("Redo", Selector(("redo:")), "Z"), ("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a"), ("Close", #selector(NSWindow.performClose(_:)), "w")] {
@@ -129,9 +133,20 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         searchController?.show()
     }
-    @objc func toggleDeck() { dock?.toggle() }
     @objc func toggleFloating() { windows?.toggleHidden() }
-    @objc func displaysChanged() { dock?.refreshLayout(); windows?.clampWindows() }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.first { $0.action == #selector(toggleFloating) }?.title = windows?.hidden == true ? "Show Floating Notes" : "Hide Floating Notes"
+    }
+    @objc func displaysChanged() { dock?.displayConfigurationChanged(); windows?.clampWindows(); windows?.refreshVisibility() }
+    @objc func willSleep() {
+        windows?.saveAllGeometry()
+        Task { do { try await store?.flush() } catch { Self.logger.error("Sleep flush failed; draft retained") } }
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        dock?.stop()
+        NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
     @objc func showSettings() {
         if settingsWindow == nil {
             settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 460, height: 560), content: SettingsView(settings: settings, shortcuts: shortcuts, reset: { [weak self] in

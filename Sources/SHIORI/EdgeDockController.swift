@@ -100,7 +100,8 @@ final class EdgeDockController: NSObject {
         self.createNote = create
         self.reportError = reportError
         super.init()
-        primaryDisplayID = Self.displayID(for: NSScreen.main ?? NSScreen.screens.first)
+        primaryDisplayID = (settings.defaults.object(forKey: "edgeDisplayID") as? NSNumber)?.uint32Value ?? Self.displayID(for: NSScreen.main ?? NSScreen.screens.first)
+        phaseMachine.showImmediately()
         makePanel()
         refreshLayout()
         installMouseMonitors()
@@ -212,7 +213,16 @@ final class EdgeDockController: NSObject {
         self.dockView = view
     }
 
+    func stop() {
+        cancelTransitions()
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
+        if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
+        localMouseMonitor = nil; globalMouseMonitor = nil
+        panel?.orderOut(nil)
+    }
+
     private func installMouseMonitors() {
+        guard localMouseMonitor == nil, globalMouseMonitor == nil else { return }
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             MainActor.assumeIsolated { self?.updatePointerInteraction() }
@@ -250,7 +260,10 @@ final class EdgeDockController: NSObject {
            let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == id }) {
             return screen
         }
-        return NSScreen.main ?? NSScreen.screens.first
+        let fallback = NSScreen.screens.first
+        primaryDisplayID = Self.displayID(for: fallback)
+        settings.defaults.set(primaryDisplayID, forKey: "edgeDisplayID")
+        return fallback
     }
 
     private func frame(for screen: NSScreen, expanded: Bool) -> NSRect {
@@ -298,13 +311,10 @@ final class EdgeDockController: NSObject {
     }
 
     fileprivate func exited() {
-        guard visible else { return }
-        let wasExpanded = phaseMachine.phase == .expanded
-        cancelOpen()
-        phaseMachine.pointerExited()
-        guard wasExpanded, phaseMachine.phase == .pendingClose else { return }
-        scheduleClose()
+        dockView?.clearHover(after: settings.closeDelay)
     }
+
+    var previewDelay: Double { settings.openDelay }
 
     fileprivate func keepOpen() {
         cancelClose()
@@ -367,7 +377,9 @@ final class EdgeDockController: NSObject {
     }
 
     fileprivate func moveAnchor(to screenPoint: NSPoint) {
-        guard let screen = retainedScreen() else { return }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? retainedScreen() else { return }
+        primaryDisplayID = Self.displayID(for: screen)
+        settings.defaults.set(primaryDisplayID, forKey: "edgeDisplayID")
         let visibleFrame = screen.visibleFrame
         pendingAnchor = min(1, max(0, (screenPoint.y - visibleFrame.minY) / visibleFrame.height))
         refreshLayout(animated: false)
@@ -439,7 +451,7 @@ private final class DockAccessibilityAction: NSAccessibilityElement, @unchecked 
             case .create:
                 return "Create note"
             case .grip:
-                return "Move notes dock"
+                return "Move edge tabs"
             case .note(let id):
                 guard let note = owner.notes.first(where: { $0.id == id }) else { return "Note" }
                 return note.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : note.title
@@ -516,6 +528,8 @@ private final class DockView: NSView {
     private var visualHoveredIndex: Int?
     private var hoverProgress: CGFloat = 0
     private var hoverTarget: CGFloat = 0
+    private var previewWork: DispatchWorkItem?
+    private var pendingHover: Int?
     private var hoverWork: DispatchWorkItem?
     private var deckWork: DispatchWorkItem?
     private var deckProgress: CGFloat = 1
@@ -537,7 +551,7 @@ private final class DockView: NSView {
         autoresizingMask = [.width, .height]
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("SHIORI Notes dock")
+        setAccessibilityLabel("SHIORI edge notes")
         layer?.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
         addTrackingArea()
     }
@@ -560,7 +574,7 @@ private final class DockView: NSView {
 
     private func containsInteraction(_ point: NSPoint) -> Bool {
         guard bounds.contains(point) else { return false }
-        if dockHitRect.contains(point) { return true }
+        if isGrip(point) { return true }
         guard isExpanded else { return false }
         return plusPath.contains(point) || visibleNotes.indices.contains { cardPath(at: $0).contains(point) }
     }
@@ -570,7 +584,24 @@ private final class DockView: NSView {
         let point = panel.convertPoint(fromScreen: screenPoint)
         let plus = plusPath.contains(point)
         if plus != plusHovered { plusHovered = plus; needsDisplay = true }
-        setHoveredIndex(cardIndex(at: point))
+        let index = cardIndex(at: point)
+        if index == hoveredIndex { previewWork?.cancel(); previewWork = nil; pendingHover = nil; return }
+        guard pendingHover != index || previewWork == nil else { return }
+        previewWork?.cancel()
+        pendingHover = index
+        let work = DispatchWorkItem { [weak self] in
+            self?.setHoveredIndex(index); self?.previewWork = nil; self?.pendingHover = nil
+        }
+        previewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (controller?.previewDelay ?? 0), execute: work)
+    }
+
+    fileprivate func clearHover(after delay: Double) {
+        guard previewWork == nil || pendingHover != nil else { return }
+        previewWork?.cancel(); pendingHover = nil
+        let work = DispatchWorkItem { [weak self] in self?.setHoveredIndex(nil); self?.previewWork = nil }
+        previewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     override func accessibilityChildren() -> [Any] {
@@ -818,8 +849,8 @@ private final class DockView: NSView {
         transform.translateX(by: edge == .left ? rect.maxX - 20 : rect.minX + 20, yBy: rect.maxY - 16)
         transform.rotate(byDegrees: edge == .left ? 90 : -90)
         transform.concat()
-        let labelLength = highlighted || index == visibleNotes.count - 1 ? Self.cardHeight - 32 : Self.cardOverlap - 22
-        (title.uppercased() as NSString).draw(in: NSRect(x: edge == .left ? -labelLength : 0, y: -7, width: labelLength, height: 15), withAttributes: [
+        let labelLength = highlighted ? Self.cardHeight - 32 : Self.cardOverlap - 18
+        (title as NSString).draw(in: NSRect(x: edge == .left ? -labelLength : 0, y: -9, width: labelLength, height: 20), withAttributes: [
             .font: Theme.roundedFont(size: 11, weight: .semibold),
             .foregroundColor: NSColor.black.withAlphaComponent(0.5),
             .kern: 0.8, .paragraphStyle: paragraph
@@ -843,7 +874,8 @@ private final class DockView: NSView {
             .foregroundColor: NSColor.labelColor.withAlphaComponent(0.55)
         ]
         (timestamp(note.updatedAt) as NSString).draw(in: NSRect(x: inset.minX, y: inset.maxY - 48, width: inset.width, height: 16), withAttributes: timestampAttributes)
-        let bodyRect = NSRect(x: inset.minX, y: inset.minY, width: inset.width, height: inset.height - 68)
+        let bodyHeight = floor((inset.height - 68) / 19) * 19
+        let bodyRect = NSRect(x: inset.minX, y: inset.maxY - 68 - bodyHeight, width: inset.width, height: bodyHeight)
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: bodyRect).addClip()
         bodyPreview(note).draw(with: bodyRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -856,7 +888,8 @@ private final class DockView: NSView {
         let result = NSMutableAttributedString(string: prefix)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 3
+        paragraph.minimumLineHeight = 19
+        paragraph.maximumLineHeight = 19
         let whole = NSRange(location: 0, length: result.length)
         result.addAttributes([
             .font: Theme.roundedFont(size: 14),
@@ -905,8 +938,7 @@ private final class DockView: NSView {
 
     fileprivate func cardFrame(at index: Int, width: CGFloat? = nil) -> NSRect {
         let contentWidth = width ?? bounds.width
-        let stagger = CGFloat(min(index, 4)) * 2
-        let exposed = Self.tabWidth + stagger
+        let exposed = Self.tabWidth
         let x = edge == .left ? exposed - Self.cardWidth : contentWidth - exposed
         let y = Self.plusHeight + Self.cardPadding + CGFloat(max(0, visibleNotes.count - index - 1)) * Self.cardOverlap
         return NSRect(x: x, y: y, width: Self.cardWidth, height: Self.cardHeight)
@@ -946,6 +978,7 @@ private final class DockView: NSView {
     }
 
     private func resetHover() {
+        previewWork?.cancel(); previewWork = nil; pendingHover = nil
         hoverWork?.cancel()
         hoveredIndex = nil
         visualHoveredIndex = nil
