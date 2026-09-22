@@ -52,7 +52,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Show/Hide Deck", #selector(toggleDeck), ""), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Back Up Now", #selector(backup), ""), ("Reveal Data Folder", #selector(revealData), ""), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }

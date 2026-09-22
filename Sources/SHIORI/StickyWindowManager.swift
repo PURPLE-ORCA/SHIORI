@@ -217,7 +217,7 @@ struct StickyEditorView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .frame(width: 22, height: 22)
                     }
-                    .accessibilityLabel("Return to deck")
+                    .accessibilityLabel("Close note")
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 22)
@@ -244,12 +244,7 @@ struct StickyEditorView: View {
                         }.buttonStyle(.plain).accessibilityLabel(Theme.names[index])
                     }
                     Spacer()
-                    Button("Complete", systemImage: "checkmark", action: complete)
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(.black.opacity(0.08), in: Capsule())
+
                 }.padding(.horizontal, 20).padding(.top, 9)
                 HStack {
                     Text(store.saveStatus(id)).font(.system(size: 10, design: .rounded)).foregroundStyle(.black.opacity(0.52))

@@ -18,7 +18,7 @@ struct SettingsView: View {
             }
             Toggle("Show across Spaces", isOn: $settings.acrossSpaces)
             Toggle("Show over full-screen applications", isOn: $settings.fullscreen)
-            Button("Reset Dock and Window Positions", action: reset)
+            Button("Reset Edge and Window Positions", action: reset)
         }.formStyle(.grouped).padding(8).frame(minWidth: 380, minHeight: 290)
     }
 }
