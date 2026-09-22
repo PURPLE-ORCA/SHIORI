@@ -2,11 +2,17 @@ import AppKit
 import SwiftUI
 
 enum NoteBodyFont: String, CaseIterable {
-    case architectsDaughter = "Architects Daughter", indieFlower = "Indie Flower", system = "System"
+    case architectsDaughter = "Architects Daughter", indieFlower = "Indie Flower", kalam = "Kalam", system = "System"
 
     @MainActor func resolve(size: Double) -> NSFont {
-        let name = self == .architectsDaughter ? "ArchitectsDaughter-Regular" : "IndieFlower-Regular"
-        return (self == .system ? nil : NSFont(name: name, size: size)) ?? NSFont.systemFont(ofSize: size)
+        let name: String
+        switch self {
+        case .architectsDaughter: name = "ArchitectsDaughter-Regular"
+        case .indieFlower: name = "IndieFlower-Regular"
+        case .kalam: name = "Kalam-Regular"
+        case .system: return NSFont.systemFont(ofSize: size)
+        }
+        return NSFont(name: name, size: size) ?? NSFont.systemFont(ofSize: size)
     }
 }
 

@@ -298,6 +298,9 @@ final class MilestoneTests: XCTestCase {
         XCTAssertFalse(editor.string.hasPrefix("**"))
         editor.undoManager?.redo()
         XCTAssertEqual(editor.string, source)
+        settings.noteFont = .kalam
+        XCTAssertEqual(settings.bodyFont.fontName, "Kalam-Regular")
+        XCTAssertEqual(SettingsStore(defaults: defaults).noteFont, .kalam)
         settings.noteFont = .system
         XCTAssertEqual(settings.bodyFont, NSFont.systemFont(ofSize: 22))
     }

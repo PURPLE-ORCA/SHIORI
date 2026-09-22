@@ -78,7 +78,7 @@ When clicked, a card expands from the deck into an active desktop note card.
     - **Caveat** (Natural cursive pen handwriting)
     - **Comic Neue** (Playful casual print)
     - **Cascadia Code** & **Inconsolata** (Monospace coding style)
-    - **Architects Daughter / Indie Flower / System** — ✔︎ done (one global note-body preference, Architects Daughter default; 14–24 pt; other UI keeps system fonts)
+    - **Architects Daughter / Indie Flower / Kalam / System** — ✔︎ done (one global note-body preference, Architects Daughter default; 14–24 pt; other UI keeps system fonts)
 
 ### 3.2 Header Bar
 - **Date & Timestamp**: Removed from the editor by product decision; timestamps remain in hover previews.
@@ -144,7 +144,7 @@ The footer of an open note card contains a unified, compact control strip:
 1. **Color Swatch Palette**: 5 circular color buttons representing the themes. — ✔︎ done
 2. **Typography / Format Bar (`Aa`, `FormatBarController`)**:
    - Toggles a compact formatting popover. — ✔︎ done
-   - Global Note Font and Note Font Size in Settings → Typography. — ✔︎ done (Architects Daughter, Indie Flower, System; no per-note font switcher)
+   - Global Note Font and Note Font Size in Settings → Typography. — ✔︎ done (Architects Daughter, Indie Flower, Kalam, System; no per-note font switcher)
    - Heading level selectors. — ✔︎ done (H1/H2 toggle on current or selected lines)
    - Bold, Italic, Strikethrough, Inline Code, Link, Bullet List and Checklist insertion. — ✔︎ done (Cmd+B, Cmd+I, Cmd+K; link destination selected inline, no separate prompt)
 3. **Divider Line**: Subtle vertical divider separating editing tools from window actions.
