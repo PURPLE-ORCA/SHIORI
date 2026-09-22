@@ -100,9 +100,15 @@ enum Theme {
     }
     static var bodyFont: NSFont { roundedFont(size: 16) }
     enum Motion {
-        static let deckOpen = 0.24
+        static let deckOpen = 0.28
         static let deckClose = 0.24
-        static let hover = 0.17
+        static let hover = 0.12
+        static let deckStagger = 0.03
+        static func deckProgress(_ progress: CGFloat, index: Int, count: Int) -> CGFloat {
+            let span = deckOpen - Double(max(0, count - 1)) * deckStagger
+            let t = min(1, max(0, (progress * deckOpen - Double(index) * deckStagger) / span))
+            return 1 - pow(1 - t, 3)
+        }
         static let editorOpen = 0.18
         static let editorClose = 0.17
         static let create = 0.18

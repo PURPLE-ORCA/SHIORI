@@ -440,7 +440,6 @@ final class EdgeDockController: NSObject {
         scheduleClose()
     }
 
-    var previewDelay: Double { settings.openDelay }
 
     fileprivate func beginDrag() {
         cancelOpen()
@@ -635,6 +634,20 @@ private final class DockAccessibilityAction: NSAccessibilityElement, @unchecked 
     }
 }
 
+struct DockTransition {
+    let from: CGFloat
+    let to: CGFloat
+    let began: TimeInterval
+    let duration: TimeInterval
+
+    func finished(at time: TimeInterval) -> Bool { time >= began + duration }
+    func value(at time: TimeInterval, eased: Bool = true) -> CGFloat {
+        let t = min(1, max(0, (time - began) / duration))
+        let progress = eased ? 1 - pow(1 - t, 3) : t
+        return from + (to - from) * progress
+    }
+}
+
 @MainActor
 private final class DockView: NSView {
     enum Edge { case left, right }
@@ -677,14 +690,10 @@ private final class DockView: NSView {
     private var draggingGrip = false
     private var plusPressed = false
     private var visualHoveredIndex: Int?
-    private var retiringHoveredIndex: Int?
-    private var retiringHoverProgress: CGFloat = 0
-    private var hoverProgress: CGFloat = 0
-    private var hoverTarget: CGFloat = 0
-    private var previewWork: DispatchWorkItem?
-    private var pendingHover: Int?
-    private var hoverWork: DispatchWorkItem?
-    private var deckWork: DispatchWorkItem?
+    private var lifts: [Int: CGFloat] = [:]
+    private var hoverTransitions: [Int: DockTransition] = [:]
+    private var deckTransition: DockTransition?
+    private var displayLink: CADisplayLink?
     private var deckProgress: CGFloat = 1
     private var previewCache: [String: (body: String, text: NSAttributedString)] = [:]
     fileprivate var anchorY: CGFloat = collapsedHeight / 2
@@ -738,15 +747,7 @@ private final class DockView: NSView {
         let plus = plusPath.contains(point)
         if plus != plusHovered { plusHovered = plus; needsDisplay = true }
         let index = cardIndex(at: point)
-        if index == hoveredIndex { previewWork?.cancel(); previewWork = nil; pendingHover = nil; return }
-        guard pendingHover != index || previewWork == nil else { return }
-        previewWork?.cancel()
-        pendingHover = index
-        let work = DispatchWorkItem { [weak self] in
-            self?.setHoveredIndex(index); self?.previewWork = nil; self?.pendingHover = nil
-        }
-        previewWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (controller?.previewDelay ?? 0), execute: work)
+        setHoveredIndex(index)
     }
 
     override func accessibilityChildren() -> [Any] {
@@ -759,7 +760,7 @@ private final class DockView: NSView {
     }
 
     fileprivate func prepareDeckEntry() {
-        deckWork?.cancel()
+        deckTransition = nil
         resetHover()
         deckProgress = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
     }
@@ -769,29 +770,40 @@ private final class DockView: NSView {
     fileprivate func cancelDeckAnimation() { animateDeck(to: 1, duration: Theme.Motion.deckOpen) }
 
     private func animateDeck(to target: CGFloat, duration: Double) {
-        deckWork?.cancel()
-        let start = deckProgress
-        guard start != target, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard deckProgress != target, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            deckTransition = nil
             deckProgress = target
             needsDisplay = true
             return
         }
-        stepDeck(from: start, to: target, began: CACurrentMediaTime(), duration: duration)
+        deckTransition = DockTransition(from: deckProgress, to: target, began: CACurrentMediaTime(), duration: duration)
+        startDisplayLink()
     }
 
-    private func stepDeck(from start: CGFloat, to target: CGFloat, began: Double, duration: Double) {
-        let t = min(1, (CACurrentMediaTime() - began) / duration)
-        let eased = Theme.Motion.progress(t)
-        deckProgress = start + (target - start) * eased
+    private func startDisplayLink() {
+        if displayLink == nil {
+            let link = self.displayLink(target: self, selector: #selector(advanceAnimations))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+        displayLink?.isPaused = false
+    }
+
+    @objc private func advanceAnimations() {
+        let now = CACurrentMediaTime()
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let transition = deckTransition {
+            deckProgress = reduced ? transition.to : transition.value(at: now, eased: false)
+            if reduced || transition.finished(at: now) { deckTransition = nil }
+        }
+        for (index, transition) in hoverTransitions {
+            lifts[index] = reduced ? transition.to : transition.value(at: now)
+            if reduced || transition.finished(at: now) { hoverTransitions[index] = nil }
+        }
         needsDisplay = true
         controller?.refreshHitRegion()
-        guard t < 1 else { deckWork = nil; return }
-        let work = DispatchWorkItem { [weak self] in
-            self?.stepDeck(from: start, to: target, began: began, duration: duration)
-        }
-        deckWork = work
-        // Repaint only during the short transition; no idle polling.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1 / 60, execute: work)
+        if deckTransition == nil && hoverTransitions.isEmpty { displayLink?.isPaused = true }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -953,11 +965,11 @@ private final class DockView: NSView {
         for index in rendered.indices where liftProgress(at: index) == 0 {
             drawCard(rendered[index], at: index, highlighted: false)
         }
-        if let index = retiringHoveredIndex, rendered.indices.contains(index), retiringHoverProgress > 0 {
+        for index in rendered.indices where liftProgress(at: index) > 0 && index != visualHoveredIndex {
             drawCard(rendered[index], at: index, highlighted: true)
         }
-        if let visualHoveredIndex, rendered.indices.contains(visualHoveredIndex), hoverProgress > 0 {
-            drawCard(rendered[visualHoveredIndex], at: visualHoveredIndex, highlighted: true)
+        if let index = visualHoveredIndex, rendered.indices.contains(index), liftProgress(at: index) > 0 {
+            drawCard(rendered[index], at: index, highlighted: true)
         }
         drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
 
@@ -975,17 +987,22 @@ private final class DockView: NSView {
 
     private func drawCard(_ note: Note, at index: Int, highlighted: Bool) {
         let rect = displayCardFrame(at: index)
+        NSGraphicsContext.saveGraphicsState()
+        cardTransform(at: index).concat()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         let cardPath = NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16)
         let shadow = NSShadow()
         let depth = liftProgress(at: index)
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.12 + depth * 0.14)
-        shadow.shadowBlurRadius = 8 + depth * 4
-        shadow.shadowOffset = NSSize(width: 0, height: -3 - depth * 2)
-        NSGraphicsContext.saveGraphicsState()
-        shadow.set()
-        Theme.nsColor(note.colorIndex).setFill()
-        cardPath.fill()
-        NSGraphicsContext.restoreGraphicsState()
+        for (alpha, blur, offset) in [(0.07 + depth * 0.04, 16.0, -8.0), (0.18, 6.0, -3.0)] {
+            NSGraphicsContext.saveGraphicsState()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(alpha)
+            shadow.shadowBlurRadius = blur
+            shadow.shadowOffset = NSSize(width: 0, height: offset)
+            shadow.set()
+            Theme.nsColor(note.colorIndex).setFill()
+            cardPath.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
 
         NSGraphicsContext.saveGraphicsState()
         cardPath.addClip()
@@ -1010,7 +1027,6 @@ private final class DockView: NSView {
         ])
         NSGraphicsContext.restoreGraphicsState()
         guard highlighted else { return }
-        NSGraphicsContext.current?.cgContext.setAlpha(liftProgress(at: index))
         let inset = NSRect(x: rect.minX + (edge == .right ? 38 : 32), y: rect.minY + 16, width: Self.cardWidth - 64, height: Self.cardHeight - 32)
         let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: Theme.roundedFont(size: 15, weight: .semibold),
@@ -1098,14 +1114,12 @@ private final class DockView: NSView {
     }
 
     private func liftProgress(at index: Int) -> CGFloat {
-        if visualHoveredIndex == index { return hoverProgress }
-        return retiringHoveredIndex == index ? retiringHoverProgress : 0
+        lifts[index] ?? 0
     }
 
     fileprivate func displayCardFrame(at index: Int) -> NSRect {
         var frame = cardFrame(at: index)
-        let stagger = CGFloat(index) * 0.035
-        let progress = min(1, max(0, (deckProgress - stagger) / (1 - stagger)))
+        let progress = Theme.Motion.deckProgress(deckProgress, index: index, count: visibleNotes.count)
         let slide = (1 - progress) * (Self.cardWidth + 24)
         let lift = Self.peekDistance * liftProgress(at: index)
         frame.origin.x += (edge == .left ? -1 : 1) * (slide - lift)
@@ -1131,67 +1145,65 @@ private final class DockView: NSView {
         return NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2)
     }
 
+    private func cardTransform(at index: Int) -> NSAffineTransform {
+        let rect = displayCardFrame(at: index)
+        let transform = NSAffineTransform()
+        let x = edge == .left ? rect.minX : rect.maxX
+        transform.translateX(by: x, yBy: rect.midY)
+        let angle = (edge == .left ? -1.0 : 1.0) * (0.8 + Double(index % 3) * 0.35)
+        transform.rotate(byDegrees: angle)
+        transform.translateX(by: -x, yBy: -rect.midY)
+        return transform
+    }
+
     private func cardPath(at index: Int) -> NSBezierPath {
-        NSBezierPath(roundedRect: displayCardFrame(at: index), xRadius: Theme.corner, yRadius: Theme.corner)
+        let path = NSBezierPath(roundedRect: displayCardFrame(at: index), xRadius: Theme.corner, yRadius: Theme.corner)
+        path.transform(using: cardTransform(at: index) as AffineTransform)
+        return path
     }
 
     fileprivate func stopAnimations() {
-        deckWork?.cancel(); deckWork = nil
+        displayLink?.invalidate(); displayLink = nil
+        deckTransition = nil
         resetHover()
     }
 
     private func resetHover() {
-        retiringHoveredIndex = nil; retiringHoverProgress = 0
-        previewWork?.cancel(); previewWork = nil; pendingHover = nil
-        hoverWork?.cancel()
+        hoverTransitions.removeAll()
+        lifts.removeAll()
         hoveredIndex = nil
         visualHoveredIndex = nil
-        hoverProgress = 0
     }
 
     private func setHoveredIndex(_ index: Int?) {
         guard hoveredIndex != index else { return }
-        hoverWork?.cancel()
         hoveredIndex = index
-        if let index {
-            if visualHoveredIndex != index {
-                retiringHoveredIndex = visualHoveredIndex
-                retiringHoverProgress = hoverProgress
-                hoverProgress = 0
+        visualHoveredIndex = index
+        let now = CACurrentMediaTime()
+        for card in visibleNotes.indices {
+            let target: CGFloat = card == index ? 1 : 0
+            let current = hoverTransitions[card]?.value(at: now) ?? liftProgress(at: card)
+            lifts[card] = current
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                lifts[card] = target
+                hoverTransitions[card] = nil
+            } else if hoverTransitions[card]?.to != target {
+                hoverTransitions[card] = current == target ? nil : DockTransition(from: current, to: target, began: now, duration: Theme.Motion.hover)
             }
-            visualHoveredIndex = index
         }
-        hoverTarget = index == nil ? 0 : 1
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            retiringHoveredIndex = nil; retiringHoverProgress = 0
-            hoverProgress = hoverTarget
-            if hoverTarget == 0 { visualHoveredIndex = nil }
-            needsDisplay = true
-            return
-        }
-        stepHoverAnimation(from: hoverProgress, retiring: retiringHoverProgress, began: CACurrentMediaTime())
-    }
-
-    private func stepHoverAnimation(from start: CGFloat, retiring: CGFloat, began: Double) {
-        let t = min(1, (CACurrentMediaTime() - began) / Theme.Motion.hover)
-        let eased = Theme.Motion.progress(t)
-        hoverProgress = start + (hoverTarget - start) * eased
-        retiringHoverProgress = retiring * (1 - eased)
         needsDisplay = true
-        controller?.refreshHitRegion()
-        guard t < 1 else {
-            if hoverTarget == 0 { visualHoveredIndex = nil }
-            retiringHoveredIndex = nil; retiringHoverProgress = 0
-            hoverWork = nil
-            return
-        }
-        let work = DispatchWorkItem { [weak self] in self?.stepHoverAnimation(from: start, retiring: retiring, began: began) }
-        hoverWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1 / 60, execute: work)
+        if !hoverTransitions.isEmpty { startDisplayLink() }
     }
 
     private func cardIndex(at point: NSPoint) -> Int? {
         guard isExpanded else { return nil }
+        let atEdge = edge == .left ? point.x <= Self.tabWidth : point.x >= bounds.width - Self.tabWidth
+        if atEdge {
+            for index in visibleNotes.indices {
+                let frame = cardFrame(at: index)
+                if point.y <= frame.maxY && point.y > frame.maxY - Self.cardOverlap { return index }
+            }
+        }
         // The lifted sheet owns its whole visible body. Testing the old slots
         // first would switch to a covered neighbour as the pointer moved down.
         if let index = visualHoveredIndex, visibleNotes.indices.contains(index), cardPath(at: index).contains(point) { return index }

@@ -34,6 +34,21 @@ final class DockTests: XCTestCase {
         state.hideImmediately()
         XCTAssertEqual(state.phase, .collapsed)
     }
+    func testDeckStaggersTopToBottomAndHoverReversesFromCurrentPosition() {
+        let progress: CGFloat = 0.2
+        XCTAssertGreaterThan(Theme.Motion.deckProgress(progress, index: 0, count: 5),
+                             Theme.Motion.deckProgress(progress, index: 1, count: 5))
+        XCTAssertEqual(Theme.Motion.deckProgress(progress, index: 4, count: 5), 0)
+        XCTAssertEqual(Theme.Motion.deckProgress(1, index: 4, count: 5), 1)
+        let opening = DockTransition(from: 0, to: 1, began: 0, duration: Theme.Motion.hover)
+        let current = opening.value(at: 0.04)
+        XCTAssertGreaterThan(current, 0.5)
+        let closing = DockTransition(from: current, to: 0, began: 0.04, duration: Theme.Motion.hover)
+        XCTAssertEqual(closing.value(at: 0.04), current)
+        XCTAssertLessThan(closing.value(at: 0.06), current)
+        XCTAssertEqual(closing.value(at: 0.2), 0)
+    }
+
     @MainActor
     func testLinkedCardReturnsToAppBorderAndFollowsFrontWindow() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
