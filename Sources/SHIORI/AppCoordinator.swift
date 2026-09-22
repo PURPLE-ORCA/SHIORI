@@ -26,6 +26,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
     var subscriptions = Set<AnyCancellable>()
+    var searchController: QuickSearchController?
+    var shortcuts: GlobalShortcutCoordinator?
     var terminating = false
 
     override init() {
@@ -38,6 +40,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard NSClassFromString("XCTestCase") == nil, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         installMenus()
+        shortcuts = GlobalShortcutCoordinator(namespace: ProcessInfo.processInfo.environment["SHIORI_DEFAULTS_SUITE"] ?? "shiori") { [weak self] command in
+            switch command {
+            case .newNote: self?.newNote()
+            case .quickSearch: self?.quickSearch()
+            case .floatingNotes: self?.toggleFloating()
+            }
+        }
         Task { await load() }
         settings.objectWillChange.sink { [weak self] in
             Task { @MainActor in
@@ -52,7 +61,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide/Show Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
@@ -113,12 +122,19 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             } catch { present(error) }
         }
     }
+    @objc func quickSearch() {
+        guard let store else { return }
+        if searchController == nil {
+            searchController = QuickSearchController(store: store, open: { [weak self] id in self?.windows?.open(id, near: nil) }, create: { [weak self] in self?.newNote() })
+        }
+        searchController?.show()
+    }
     @objc func toggleDeck() { dock?.toggle() }
     @objc func toggleFloating() { windows?.toggleHidden() }
     @objc func displaysChanged() { dock?.refreshLayout(); windows?.clampWindows() }
     @objc func showSettings() {
         if settingsWindow == nil {
-            settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 390, height: 310), content: SettingsView(settings: settings, reset: { [weak self] in
+            settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 460, height: 560), content: SettingsView(settings: settings, shortcuts: shortcuts, reset: { [weak self] in
                 self?.settings.resetPositions(); self?.dock?.refreshLayout(); self?.windows?.resetPositions()
             }))
         }

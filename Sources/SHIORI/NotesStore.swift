@@ -62,6 +62,14 @@ public final class NotesStore: ObservableObject {
         saveStates[note.id] = .clean
         return note
     }
+    public func search(_ query: String) -> [Note] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return active }
+        return active.filter {
+            $0.title.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil ||
+            $0.body.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
     public func note(id: String) -> Note? { notes.first { $0.id == id } }
     public func isBusy(_ id: String) -> Bool { busyIDs.contains(id) }
     public func hasError(_ id: String) -> Bool { if case .error = saveStates[id] { return true }; return false }

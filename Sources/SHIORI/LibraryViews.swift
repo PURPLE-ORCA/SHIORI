@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    var shortcuts: GlobalShortcutCoordinator?
     let reset: () -> Void
     var body: some View {
         Form {
@@ -18,6 +19,7 @@ struct SettingsView: View {
             }
             Toggle("Show across Spaces", isOn: $settings.acrossSpaces)
             Toggle("Show over full-screen applications", isOn: $settings.fullscreen)
+            if let shortcuts { ShortcutSettingsView(shortcuts: shortcuts) }
             Button("Reset Edge and Window Positions", action: reset)
         }.formStyle(.grouped).padding(8).frame(minWidth: 380, minHeight: 290)
     }
