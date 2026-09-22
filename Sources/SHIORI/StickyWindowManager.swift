@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 final class StickyPanel: NSPanel {
     var requestClose: (() -> Void)?
@@ -19,6 +20,8 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     private let deleteUndo = DeleteUndoCoordinator()
     private var geometryTasks: [String: Task<Void, Never>] = [:]
     private var opening: Task<Void, Never>?
+    private var dismissals: [String: Task<Void, Never>] = [:]
+    var deckFrame: ((String) -> NSRect?)?
 
     init(store: NotesStore, settings: SettingsStore, reportError: @escaping (Error) -> Void) {
         self.store = store; self.settings = settings; self.reportError = reportError
@@ -28,6 +31,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         opening = Task { [weak self] in
             await previous?.value
             guard let self else { return }
+            await self.dismissals[id]?.value
             do {
                 guard let note = self.store.notes.first(where: { $0.id == id }), note.archivedAt == nil, note.deletedAt == nil else { return }
                 if !note.pinned { try await self.closeTransient(except: id); self.transient = id }
@@ -55,7 +59,20 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: StickyEditorView(store: store, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
         windows[id] = window
+        let animate = activate && cardFrame != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if animate, let cardFrame {
+            window.setFrame(cardFrame, display: false)
+            window.alphaValue = 0.25
+        }
         if activate { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) } else { window.orderFrontRegardless() }
+        if animate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Theme.Motion.editor
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().setFrame(frame, display: true)
+                window.animator().alphaValue = 1
+            }
+        }
     }
     func restorePinned() {
         for note in store.notes where note.pinned && note.archivedAt == nil && note.deletedAt == nil { show(note.id, near: nil, focusTitle: false, activate: false) }
@@ -63,7 +80,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     func closeTransient(except id: String? = nil) async throws {
         if let current = transient, current != id {
             try await store.flush(current)
-            dismiss(current)
+            await dismiss(current)
         }
     }
     func close(_ id: String) {
@@ -71,7 +88,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             do {
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: false)
-                dismiss(id)
+                await dismiss(id)
             } catch { reportError(error) }
         }
     }
@@ -81,7 +98,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
                 guard let note = store.notes.first(where: { $0.id == id }) else { return }
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: !note.pinned)
-                if note.pinned { dismiss(id) } else { transient = nil; saveGeometry(id) }
+                if note.pinned { await dismiss(id) } else { transient = nil; saveGeometry(id) }
             } catch { reportError(error) }
         }
     }
@@ -92,7 +109,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         Task {
             do {
                 try await store.delete(id)
-                dismiss(id)
+                await dismiss(id)
                 deleteUndo.show(on: screen, undo: { [weak self] in
                     guard let self else { return }
                     try await self.store.undoDelete(id)
@@ -103,14 +120,34 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             } catch { reportError(error) }
         }
     }
-    private func dismiss(_ id: String) {
+    private func dismiss(_ id: String) async {
+        if let pending = dismissals[id] { await pending.value; return }
         guard let window = windows[id] else { return }
         saveGeometry(id)
         geometryTasks.removeValue(forKey: id)?.cancel()
         window.delegate = nil
-        window.close()
-        windows.removeValue(forKey: id)
-        if transient == id { transient = nil }
+        window.ignoresMouseEvents = true
+        window.makeFirstResponder(nil)
+        window.resignKey()
+        let destination = deckFrame?(id)
+        let task = Task { @MainActor in
+            if let destination, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = Theme.Motion.editor
+                        context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                        window.animator().setFrame(destination, display: true)
+                        window.animator().alphaValue = 0
+                    } completionHandler: { continuation.resume() }
+                }
+            }
+            window.close()
+            self.windows.removeValue(forKey: id)
+            if self.transient == id { self.transient = nil }
+        }
+        dismissals[id] = task
+        await task.value
+        dismissals.removeValue(forKey: id)
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if let id = sender.identifier?.rawValue { close(id) }
@@ -131,7 +168,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         let display = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")].map { String(describing: $0) }
         settings.saveFrame(window.frame, id: id, display: display)
     }
-    func saveAllGeometry() { for id in windows.keys { saveGeometry(id) } }
+    func saveAllGeometry() { for id in windows.keys where dismissals[id] == nil { saveGeometry(id) } }
     func toggleHidden() {
         hidden.toggle()
         for (id, window) in windows where store.notes.first(where: { $0.id == id })?.pinned == true {
