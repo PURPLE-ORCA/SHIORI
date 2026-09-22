@@ -1,0 +1,505 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05986CF8B901295999EBE0A2 /* DockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B93148A9FAC120C6F5D2BAA /* DockTests.swift */; };
+		0B8139633FF8C041C2B6EC1E /* ChecklistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54059C9427E63965DF09A38C /* ChecklistEngine.swift */; };
+		1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */; };
+		199E97AE46F345E6A2472983 /* ChecklistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3D2954DC78608B426185C7 /* ChecklistTests.swift */; };
+		1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */; };
+		3ACADFDBA4A35D9C4A95569A /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */; };
+		3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414E55F50766B9264F89BB9C /* NotesStore.swift */; };
+		78DB85F53876A3C31E92F0E9 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */; };
+		7C0CCE81B9C258C8B25F48C7 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F4C8AFC21B475CEC178CE4EE /* GRDB */; };
+		7FE496B3FFFAE8835CF29F2E /* AutosaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537C80AD478C3743725FF672 /* AutosaveTests.swift */; };
+		8CC828ADA005737422428A1C /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 5D1B430C4FB2F2C2156E333D /* GRDB */; };
+		914AA2B45C9E733DE32DE8E5 /* LibraryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */; };
+		990F9A85D163AEAC6838AC66 /* StickyWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */; };
+		AB03EC102FCDDFC9AD48DD08 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */; };
+		C16AF2D17A3859D354D45F7D /* EdgeDockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */; };
+		D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2CD883F06BBF4F2797852FF /* NativeEditor.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		696AB2742F3CA4D171C3B997 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B2BB74DDBADF93045F294187 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4F493434A4C0395D1AE3812B;
+			remoteInfo = SHIORI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		20991ECCDFD34CDA8C2001E8 /* SHIORITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SHIORITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViews.swift; sourceTree = "<group>"; };
+		2B3D2954DC78608B426185C7 /* ChecklistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistTests.swift; sourceTree = "<group>"; };
+		2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryTests.swift; sourceTree = "<group>"; };
+		414E55F50766B9264F89BB9C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
+		537C80AD478C3743725FF672 /* AutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutosaveTests.swift; sourceTree = "<group>"; };
+		54059C9427E63965DF09A38C /* ChecklistEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistEngine.swift; sourceTree = "<group>"; };
+		6B93148A9FAC120C6F5D2BAA /* DockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTests.swift; sourceTree = "<group>"; };
+		7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeDockController.swift; sourceTree = "<group>"; };
+		80798EE414F27B985C6F563A /* SHIORI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SHIORI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
+		BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyWindowManager.swift; sourceTree = "<group>"; };
+		E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRepository.swift; sourceTree = "<group>"; };
+		F2CD883F06BBF4F2797852FF /* NativeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEditor.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3763CD0E7F72D1C5C194BDFD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8CC828ADA005737422428A1C /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E79205002CFE363B0849865A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C0CCE81B9C258C8B25F48C7 /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		15272FF45448E22E3709362C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				80798EE414F27B985C6F563A /* SHIORI.app */,
+				20991ECCDFD34CDA8C2001E8 /* SHIORITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		180AC0A92A0DF6DBFDC47216 /* SHIORITests */ = {
+			isa = PBXGroup;
+			children = (
+				537C80AD478C3743725FF672 /* AutosaveTests.swift */,
+				2B3D2954DC78608B426185C7 /* ChecklistTests.swift */,
+				6B93148A9FAC120C6F5D2BAA /* DockTests.swift */,
+				2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */,
+				BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */,
+			);
+			name = SHIORITests;
+			path = Tests/SHIORITests;
+			sourceTree = "<group>";
+		};
+		2F1B0778CAF6EB26570ED830 = {
+			isa = PBXGroup;
+			children = (
+				34A53952AC2E17B4EDBC7B93 /* SHIORI */,
+				180AC0A92A0DF6DBFDC47216 /* SHIORITests */,
+				15272FF45448E22E3709362C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		34A53952AC2E17B4EDBC7B93 /* SHIORI */ = {
+			isa = PBXGroup;
+			children = (
+				7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */,
+				54059C9427E63965DF09A38C /* ChecklistEngine.swift */,
+				8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */,
+				2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */,
+				F2CD883F06BBF4F2797852FF /* NativeEditor.swift */,
+				E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */,
+				414E55F50766B9264F89BB9C /* NotesStore.swift */,
+				B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */,
+				BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */,
+			);
+			name = SHIORI;
+			path = Sources/SHIORI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4F493434A4C0395D1AE3812B /* SHIORI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 55AB17394295FEF2B15E47F4 /* Build configuration list for PBXNativeTarget "SHIORI" */;
+			buildPhases = (
+				18584BBBE77AA5CF3B8247E4 /* Sources */,
+				3763CD0E7F72D1C5C194BDFD /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SHIORI;
+			packageProductDependencies = (
+				5D1B430C4FB2F2C2156E333D /* GRDB */,
+			);
+			productName = SHIORI;
+			productReference = 80798EE414F27B985C6F563A /* SHIORI.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7961C38543CE4502F9CDDAE8 /* SHIORITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 729D5BC6B903F88F136F5564 /* Build configuration list for PBXNativeTarget "SHIORITests" */;
+			buildPhases = (
+				DF2D531558807600448FCAE8 /* Sources */,
+				E79205002CFE363B0849865A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DB725A79849B6DEC735CBA50 /* PBXTargetDependency */,
+			);
+			name = SHIORITests;
+			packageProductDependencies = (
+				F4C8AFC21B475CEC178CE4EE /* GRDB */,
+			);
+			productName = SHIORITests;
+			productReference = 20991ECCDFD34CDA8C2001E8 /* SHIORITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B2BB74DDBADF93045F294187 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					4F493434A4C0395D1AE3812B = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					7961C38543CE4502F9CDDAE8 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 801981F9CFC6CADA7FB0F943 /* Build configuration list for PBXProject "SHIORI" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 2F1B0778CAF6EB26570ED830;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2CFFA02A8F9A0157DB7AD3ED /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 15272FF45448E22E3709362C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4F493434A4C0395D1AE3812B /* SHIORI */,
+				7961C38543CE4502F9CDDAE8 /* SHIORITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		18584BBBE77AA5CF3B8247E4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3ACADFDBA4A35D9C4A95569A /* AppCoordinator.swift in Sources */,
+				0B8139633FF8C041C2B6EC1E /* ChecklistEngine.swift in Sources */,
+				C16AF2D17A3859D354D45F7D /* EdgeDockController.swift in Sources */,
+				914AA2B45C9E733DE32DE8E5 /* LibraryViews.swift in Sources */,
+				D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */,
+				1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */,
+				3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */,
+				AB03EC102FCDDFC9AD48DD08 /* SettingsStore.swift in Sources */,
+				990F9A85D163AEAC6838AC66 /* StickyWindowManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF2D531558807600448FCAE8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7FE496B3FFFAE8835CF29F2E /* AutosaveTests.swift in Sources */,
+				199E97AE46F345E6A2472983 /* ChecklistTests.swift in Sources */,
+				05986CF8B901295999EBE0A2 /* DockTests.swift in Sources */,
+				1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */,
+				78DB85F53876A3C31E92F0E9 /* PersistenceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DB725A79849B6DEC735CBA50 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4F493434A4C0395D1AE3812B /* SHIORI */;
+			targetProxy = 696AB2742F3CA4D171C3B997 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0FF45D3F00C83FBCCE4D072E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.shiori.SHIORITests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SHIORI.app/Contents/MacOS/SHIORI";
+			};
+			name = Debug;
+		};
+		420F268501CEA65ACCD13B4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.shiori.SHIORITests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SHIORI.app/Contents/MacOS/SHIORI";
+			};
+			name = Release;
+		};
+		8D8317107313A630AE1BB49A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
+				INFOPLIST_KEY_LSUIElement = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.shiori.desktop;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		B2BDBAFD51547046118F92E4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		D5A1222654C81F9D511C1AFB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		FCFDEAF2EA5024280FAB3E15 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
+				INFOPLIST_KEY_LSUIElement = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.shiori.desktop;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		55AB17394295FEF2B15E47F4 /* Build configuration list for PBXNativeTarget "SHIORI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8D8317107313A630AE1BB49A /* Debug */,
+				FCFDEAF2EA5024280FAB3E15 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		729D5BC6B903F88F136F5564 /* Build configuration list for PBXNativeTarget "SHIORITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0FF45D3F00C83FBCCE4D072E /* Debug */,
+				420F268501CEA65ACCD13B4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		801981F9CFC6CADA7FB0F943 /* Build configuration list for PBXProject "SHIORI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B2BDBAFD51547046118F92E4 /* Debug */,
+				D5A1222654C81F9D511C1AFB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2CFFA02A8F9A0157DB7AD3ED /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = exactVersion;
+				version = 7.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5D1B430C4FB2F2C2156E333D /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CFFA02A8F9A0157DB7AD3ED /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		F4C8AFC21B475CEC178CE4EE /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CFFA02A8F9A0157DB7AD3ED /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = B2BB74DDBADF93045F294187 /* Project object */;
+}

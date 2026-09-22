@@ -1,0 +1,49 @@
+name: SHIORI
+options:
+  bundleIdPrefix: app.shiori
+  deploymentTarget:
+    macOS: '14.0'
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    exactVersion: 7.8.0
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    CODE_SIGN_IDENTITY: '-'
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ''
+targets:
+  SHIORI:
+    type: application
+    platform: macOS
+    sources: [Sources/SHIORI]
+    dependencies:
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.shiori.desktop
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SHIORI
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_HARDENED_RUNTIME: YES
+  SHIORITests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/SHIORITests]
+    dependencies:
+      - target: SHIORI
+      - package: GRDB
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  SHIORI:
+    build:
+      targets:
+        SHIORI: all
+        SHIORITests: [test]
+    test:
+      targets: [SHIORITests]
