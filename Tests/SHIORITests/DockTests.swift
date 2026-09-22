@@ -36,6 +36,7 @@ final class DockTests: XCTestCase {
     }
     @MainActor
     func testLinkedCardReturnsToAppBorderAndFollowsFrontWindow() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let suite = "tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -74,6 +74,7 @@ final class PersistenceTests: XCTestCase {
 
     @MainActor
     func testAppWindowVisibilityAndTerminationPreserveAttachment() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let (_, databaseURL) = try makeDatabaseURL()
         let repository = try await NoteRepository.open(at: databaseURL)
         let store = NotesStore(repository: repository)

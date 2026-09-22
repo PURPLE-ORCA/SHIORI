@@ -1,3 +1,7 @@
+# Desktop-test regression safeguard — 2026-09-22
+
+The later `/tmp/shiori-responsive-tests.log` explicitly enabled `SHIORI_RUN_WINDOW_TESTS=1`, reproducing visible note cycling. Two new app-attachment window tests also bypassed the opt-in guard; both are now guarded. Follow `RULES.md`: routine tests explicitly disable desktop interactions. Older interactive results below are historical evidence, not instructions to rerun them.
+
 # Startup investigation — 2026-09-22
 
 - Only one normal SHIORI process was running. A quit/relaunch sampled for six seconds showed the same two narrow edge panels throughout, without editors opening.
@@ -9,7 +13,7 @@
 Current automated evidence: **41 tests pass**, including whitespace rendering and invalid Markdown coordinate regressions. Full app build is run after the suite.
 
 ```sh
-xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build SHIORI_RUN_WINDOW_TESTS=1 test
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build SHIORI_RUN_WINDOW_TESTS=0 test
 xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath build build
 ```
 
