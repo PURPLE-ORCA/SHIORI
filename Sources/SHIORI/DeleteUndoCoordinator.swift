@@ -4,17 +4,20 @@ import SwiftUI
 @MainActor
 final class DeleteUndoCoordinator {
     private var panel: NSPanel?
+    private var generation = UUID()
     private var expiry: Task<Void, Never>?
     func show(on screen: NSScreen?, undo: @escaping () async throws -> Void, reportError: @escaping (Error) -> Void) {
         dismiss()
+        let token = generation
         let frame = (screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
         let panel = ToastPanel(contentRect: NSRect(x: frame.midX - 125, y: frame.minY + 32, width: 250, height: 48), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.backgroundColor = .clear
         panel.level = .floating; panel.hidesOnDeactivate = false; panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = NSHostingView(rootView: DeleteToastView {
+            guard self.generation == token else { return }
             self.expiry?.cancel()
-            do { try await undo(); self.dismiss() }
+            do { try await undo(); if self.generation == token { self.dismiss() } }
             catch { reportError(error) }
         })
         self.panel = panel
@@ -24,7 +27,7 @@ final class DeleteUndoCoordinator {
             self?.dismiss()
         }
     }
-    func dismiss() { expiry?.cancel(); expiry = nil; panel?.orderOut(nil); panel = nil }
+    func dismiss() { generation = UUID(); expiry?.cancel(); expiry = nil; panel?.orderOut(nil); panel = nil }
 }
 
 private final class ToastPanel: NSPanel {

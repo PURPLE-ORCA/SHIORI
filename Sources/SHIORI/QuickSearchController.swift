@@ -19,7 +19,12 @@ final class QuickSearchController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.contentView = NSHostingView(rootView: QuickSearchView(store: store, open: { [weak self] id in
             self?.dismiss(); self?.open(id)
-        }, create: { [weak self] in self?.dismiss(); self?.create() }, dismiss: { [weak self] in self?.dismiss() }))
+        }, create: { [weak self] in self?.dismiss(); self?.create() }, dismiss: { [weak self] in self?.dismiss() }, resize: { [weak panel] count in
+            guard let panel else { return }
+            let height = 55 + CGFloat(min(max(count, 1), 6)) * 56
+            let top = panel.frame.maxY
+            panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: 480, height: height), display: true)
+        }))
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         if let frame = screen?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: frame.midX - 240, y: frame.midY + frame.height * 0.15 - 90))
@@ -41,6 +46,7 @@ private struct QuickSearchView: View {
     let open: (String) -> Void
     let create: () -> Void
     let dismiss: () -> Void
+    let resize: (Int) -> Void
     @State private var query = ""
     @State private var selectedID: String?
     @FocusState private var focused: Bool
@@ -76,8 +82,11 @@ private struct QuickSearchView: View {
             }
         }
         .frame(width: 480).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .onAppear { selectedID = results.first?.id; focused = true }
-        .onChange(of: results.map(\.id)) { _, ids in if !ids.contains(selectedID ?? "") { selectedID = ids.first } }
+        .onAppear { selectedID = results.first?.id; focused = true; resize(results.count) }
+        .onChange(of: results.map(\.id)) { _, ids in
+            if !ids.contains(selectedID ?? "") { selectedID = ids.first }
+            resize(ids.count)
+        }
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onExitCommand(perform: dismiss)

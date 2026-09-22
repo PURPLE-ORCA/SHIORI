@@ -7,7 +7,9 @@ enum MarkdownFormat: String, CaseIterable {
 
 enum MarkdownFormattingEngine {
     static func edit(_ format: MarkdownFormat, text: String, selection: NSRange) -> ChecklistEngine.TextEdit? {
-        guard Range(selection, in: text) != nil else { return nil }
+        guard let range = Range(selection, in: text),
+              (range.lowerBound == text.endIndex || text.indices.contains(range.lowerBound)),
+              (range.upperBound == text.endIndex || text.indices.contains(range.upperBound)) else { return nil }
         let source = text as NSString
         let selected = source.substring(with: selection)
         switch format {

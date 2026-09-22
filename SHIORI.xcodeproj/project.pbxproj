@@ -7,10 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0307ADC89C69A9BD8FFF90C7 /* DeleteUndoCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECC46B4D50DF38188BE63F8E /* DeleteUndoCoordinator.swift */; };
 		05986CF8B901295999EBE0A2 /* DockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B93148A9FAC120C6F5D2BAA /* DockTests.swift */; };
 		0B8139633FF8C041C2B6EC1E /* ChecklistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54059C9427E63965DF09A38C /* ChecklistEngine.swift */; };
 		1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */; };
 		199E97AE46F345E6A2472983 /* ChecklistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3D2954DC78608B426185C7 /* ChecklistTests.swift */; };
+		1DC027410277B291D377179F /* MarkdownFormattingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */; };
 		1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */; };
 		3ACADFDBA4A35D9C4A95569A /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */; };
 		3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414E55F50766B9264F89BB9C /* NotesStore.swift */; };
@@ -23,10 +25,12 @@
 		990F9A85D163AEAC6838AC66 /* StickyWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */; };
 		9B7AC63DF9C60C6864DCBC26 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 12022C0811DE79F2E325F49D /* KeyboardShortcuts */; };
 		9C0B172A822DA2C3561A2CA7 /* QuickSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB677952F45787ED67901C9 /* QuickSearchController.swift */; };
+		9CE467724DF7301836015F3F /* MilestoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB28C998EDA1C5435EE5A3B7 /* MilestoneTests.swift */; };
 		AB03EC102FCDDFC9AD48DD08 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */; };
 		B8DB883C05626D8839896021 /* GlobalShortcutCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A104583AF30F9D10564FAEB4 /* GlobalShortcutCoordinator.swift */; };
 		C16AF2D17A3859D354D45F7D /* EdgeDockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */; };
 		D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2CD883F06BBF4F2797852FF /* NativeEditor.swift */; };
+		F93D7202410F4BF27A1FEC9C /* LaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD332B635643125D7EFCE77 /* LaunchAtLoginService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +51,7 @@
 		414E55F50766B9264F89BB9C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		537C80AD478C3743725FF672 /* AutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutosaveTests.swift; sourceTree = "<group>"; };
 		54059C9427E63965DF09A38C /* ChecklistEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistEngine.swift; sourceTree = "<group>"; };
+		602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFormattingEngine.swift; sourceTree = "<group>"; };
 		6B93148A9FAC120C6F5D2BAA /* DockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTests.swift; sourceTree = "<group>"; };
 		7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
 		8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeDockController.swift; sourceTree = "<group>"; };
@@ -55,9 +60,12 @@
 		B95BF62E3AF6CA3D43E8F56A /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		BC5C8CB591B145FF629595EB /* StickyWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyWindowManager.swift; sourceTree = "<group>"; };
+		DB28C998EDA1C5435EE5A3B7 /* MilestoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MilestoneTests.swift; sourceTree = "<group>"; };
 		E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRepository.swift; sourceTree = "<group>"; };
+		ECC46B4D50DF38188BE63F8E /* DeleteUndoCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteUndoCoordinator.swift; sourceTree = "<group>"; };
 		EEB677952F45787ED67901C9 /* QuickSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchController.swift; sourceTree = "<group>"; };
 		F2CD883F06BBF4F2797852FF /* NativeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEditor.swift; sourceTree = "<group>"; };
+		FBD332B635643125D7EFCE77 /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +106,7 @@
 				2B3D2954DC78608B426185C7 /* ChecklistTests.swift */,
 				6B93148A9FAC120C6F5D2BAA /* DockTests.swift */,
 				2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */,
+				DB28C998EDA1C5435EE5A3B7 /* MilestoneTests.swift */,
 				BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */,
 			);
 			name = SHIORITests;
@@ -118,9 +127,12 @@
 			children = (
 				7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */,
 				54059C9427E63965DF09A38C /* ChecklistEngine.swift */,
+				ECC46B4D50DF38188BE63F8E /* DeleteUndoCoordinator.swift */,
 				8062B4A376C6C6B7ECFD3F7F /* EdgeDockController.swift */,
 				A104583AF30F9D10564FAEB4 /* GlobalShortcutCoordinator.swift */,
+				FBD332B635643125D7EFCE77 /* LaunchAtLoginService.swift */,
 				2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */,
+				602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */,
 				F2CD883F06BBF4F2797852FF /* NativeEditor.swift */,
 				E4949E90FD477DE37C4C4EAA /* NoteRepository.swift */,
 				414E55F50766B9264F89BB9C /* NotesStore.swift */,
@@ -226,9 +238,12 @@
 			files = (
 				3ACADFDBA4A35D9C4A95569A /* AppCoordinator.swift in Sources */,
 				0B8139633FF8C041C2B6EC1E /* ChecklistEngine.swift in Sources */,
+				0307ADC89C69A9BD8FFF90C7 /* DeleteUndoCoordinator.swift in Sources */,
 				C16AF2D17A3859D354D45F7D /* EdgeDockController.swift in Sources */,
 				B8DB883C05626D8839896021 /* GlobalShortcutCoordinator.swift in Sources */,
+				F93D7202410F4BF27A1FEC9C /* LaunchAtLoginService.swift in Sources */,
 				914AA2B45C9E733DE32DE8E5 /* LibraryViews.swift in Sources */,
+				1DC027410277B291D377179F /* MarkdownFormattingEngine.swift in Sources */,
 				D76A079B68E143C069826A67 /* NativeEditor.swift in Sources */,
 				1200235F9B6267D11CC5341E /* NoteRepository.swift in Sources */,
 				3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */,
@@ -246,6 +261,7 @@
 				199E97AE46F345E6A2472983 /* ChecklistTests.swift in Sources */,
 				05986CF8B901295999EBE0A2 /* DockTests.swift in Sources */,
 				1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */,
+				9CE467724DF7301836015F3F /* MilestoneTests.swift in Sources */,
 				78DB85F53876A3C31E92F0E9 /* PersistenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -304,6 +320,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
+				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -449,6 +466,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
+				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
