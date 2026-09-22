@@ -126,7 +126,7 @@ final class EdgeDockController: NSObject {
     }
 
     /// Returns the projected card frame in screen coordinates without opening
-    /// the deck. The editor uses this as the source frame for its transition.
+    /// the deck. The editor uses this to choose its initial position.
     func cardScreenFrame(for id: String) -> NSRect? {
         guard let screen = retainedScreen(), let dockView else { return nil }
         guard let index = dockView.visibleNoteIndex(for: id) else { return nil }

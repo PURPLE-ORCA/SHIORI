@@ -71,7 +71,6 @@ enum Theme {
         static let deckOpen = 0.24
         static let deckClose = 0.28
         static let hover = 0.18
-        static let editor = 0.28
     }
     static let corner: CGFloat = 16
     static let editorSize = NSSize(width: 360, height: 400)

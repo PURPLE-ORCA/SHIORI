@@ -102,7 +102,6 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let manager = StickyWindowManager(store: loaded, settings: settings, reportError: { [weak self] error in self?.present(error) })
             windows = manager
             synchronizeEdgeTabs()
-            manager.deckFrame = { [weak self] id in self?.dock?.cardScreenFrame(for: id) }
             manager.restorePinned()
             do { _ = try await repository.backupIfNeeded(in: dataFolder.appendingPathComponent("Backups")) }
             catch { present(error, title: "The backup could not be created") }
