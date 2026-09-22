@@ -196,6 +196,11 @@ final class MilestoneTests: XCTestCase {
         manager.restorePinned()
         let window = try XCTUnwrap(manager.windows[note.id])
         let frame = window.frame
+        let content = try XCTUnwrap(window.contentView)
+        content.layoutSubtreeIfNeeded()
+        let headerY: CGFloat = content.isFlipped ? 54 : content.bounds.height - 54
+        let headerPoint = content.convert(NSPoint(x: 30, y: headerY), to: content.superview)
+        XCTAssertTrue(content.hitTest(headerPoint) is HeaderDragArea.DragView, "Header hit: \(String(describing: content.hitTest(headerPoint)))")
         let preferences = defaults.dictionaryRepresentation()
         manager.toggleHidden()
         XCTAssertFalse(window.isVisible)

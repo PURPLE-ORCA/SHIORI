@@ -194,6 +194,8 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
 
 struct HeaderDragArea: NSViewRepresentable {
     final class DragView: NSView {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
         override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
     }
     func makeNSView(context: Context) -> NSView { DragView() }
@@ -239,18 +241,18 @@ struct StickyEditorView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 22)
                 .padding(.top, 20)
+                .overlay(alignment: .top) { HeaderDragArea().frame(height: 18) }
                 HStack(spacing: 8) {
                     Text(Date(timeIntervalSince1970: note.updatedAt), format: .dateTime.month(.abbreviated).day().hour().minute())
                         .font(.system(size: 12, weight: .regular, design: .rounded))
                         .foregroundStyle(.black.opacity(0.48))
                         .allowsHitTesting(false)
-                    HeaderDragArea()
-                        .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18)
-                        .accessibilityLabel("Move note")
+                    Spacer(minLength: 0)
                 }
                     .padding(.horizontal, 20)
                     .padding(.top, 3)
                     .padding(.bottom, 8)
+                    .overlay(HeaderDragArea().accessibilityLabel("Move note"))
                 NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus)
                     .connecting { editor = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

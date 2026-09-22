@@ -64,6 +64,7 @@ final class EdgeDockController: NSObject {
     private let settings: SettingsStore
     private let openNote: (String, NSRect?) -> Void
     private let createNote: () -> Void
+    private let pointerLocation: () -> NSPoint
     private let reportError: (Error) -> Void
 
     private var panel: DockPanel?
@@ -85,6 +86,7 @@ final class EdgeDockController: NSObject {
         settings: SettingsStore,
         open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
+        pointerLocation: @escaping () -> NSPoint = { NSEvent.mouseLocation },
         reportError: @escaping (Error) -> Void = { error in
             let alert = NSAlert()
             alert.messageText = "The note order could not be saved"
@@ -98,10 +100,10 @@ final class EdgeDockController: NSObject {
         self.settings = settings
         self.openNote = open
         self.createNote = create
+        self.pointerLocation = pointerLocation
         self.reportError = reportError
         super.init()
         primaryDisplayID = (settings.defaults.object(forKey: "edgeDisplayID") as? NSNumber)?.uint32Value ?? Self.displayID(for: NSScreen.main ?? NSScreen.screens.first)
-        phaseMachine.showImmediately()
         makePanel()
         refreshLayout()
         installMouseMonitors()
@@ -235,12 +237,12 @@ final class EdgeDockController: NSObject {
 
     fileprivate func refreshHitRegion() {
         guard let panel, let dockView else { return }
-        panel.ignoresMouseEvents = !visible || (!dockView.isDragging && !dockView.interactiveContains(screenPoint: NSEvent.mouseLocation, in: panel))
+        panel.ignoresMouseEvents = !visible || (!dockView.isDragging && !dockView.interactiveContains(screenPoint: pointerLocation(), in: panel))
     }
 
     fileprivate func updatePointerInteraction() {
         guard visible, let panel, let dockView else { return }
-        let screenPoint = NSEvent.mouseLocation
+        let screenPoint = pointerLocation()
         if dockView.isDragging {
             panel.ignoresMouseEvents = false
             return
@@ -296,7 +298,7 @@ final class EdgeDockController: NSObject {
         return NSRect(x: x, y: y, width: width, height: height)
     }
 
-    fileprivate func entered() {
+    func entered() {
         guard visible else { return }
         cancelClose()
         if phaseMachine.phase == .pendingClose {
@@ -310,11 +312,22 @@ final class EdgeDockController: NSObject {
         scheduleOpen()
     }
 
-    fileprivate func exited() {
-        dockView?.clearHover(after: settings.closeDelay)
+    func exited() {
+        guard visible, dockView?.isDragging != true else { return }
+        let wasExpanded = phaseMachine.phase == .expanded
+        cancelOpen()
+        phaseMachine.pointerExited()
+        guard wasExpanded, phaseMachine.phase == .pendingClose else { return }
+        scheduleClose()
     }
 
     var previewDelay: Double { settings.openDelay }
+
+    fileprivate func beginDrag() {
+        cancelOpen()
+        if phaseMachine.phase == .pendingOpen { phaseMachine.hideImmediately() }
+        keepOpen()
+    }
 
     fileprivate func keepOpen() {
         cancelClose()
@@ -574,7 +587,7 @@ private final class DockView: NSView {
 
     private func containsInteraction(_ point: NSPoint) -> Bool {
         guard bounds.contains(point) else { return false }
-        if isGrip(point) { return true }
+        if dockHitRect.contains(point) { return true }
         guard isExpanded else { return false }
         return plusPath.contains(point) || visibleNotes.indices.contains { cardPath(at: $0).contains(point) }
     }
@@ -594,14 +607,6 @@ private final class DockView: NSView {
         }
         previewWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (controller?.previewDelay ?? 0), execute: work)
-    }
-
-    fileprivate func clearHover(after delay: Double) {
-        guard previewWork == nil || pendingHover != nil else { return }
-        previewWork?.cancel(); pendingHover = nil
-        let work = DispatchWorkItem { [weak self] in self?.setHoveredIndex(nil); self?.previewWork = nil }
-        previewWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     override func accessibilityChildren() -> [Any] {
@@ -679,10 +684,13 @@ private final class DockView: NSView {
         controller?.keepOpen()
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         dragStart = point
-        draggingGrip = isGrip(point)
+        draggingGrip = !isExpanded || isGrip(point)
         plusPressed = false
         if isExpanded {
             if plusFrame.contains(point) {
@@ -696,7 +704,7 @@ private final class DockView: NSView {
             dragIDs = nil
         }
         dragTargetIndex = nil
-        controller?.keepOpen()
+        controller?.beginDrag()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -725,7 +733,7 @@ private final class DockView: NSView {
             dragTargetIndex = nil
             draggingGrip = false
             plusPressed = false
-            controller?.refreshHitRegion()
+            controller?.updatePointerInteraction()
             needsDisplay = true
         }
 
@@ -783,23 +791,19 @@ private final class DockView: NSView {
     }
 
     private func drawCollapsed() {
-        let width: CGFloat = 10
-        let rect = NSRect(x: edge == .left ? -5 : bounds.width - width, y: anchorY - 44, width: width + 5, height: 88)
-        guard !notes.isEmpty else {
-            Theme.nsColor(0).setFill()
-            NSBezierPath(roundedRect: NSRect(x: rect.minX, y: anchorY - 18, width: rect.width, height: 36), xRadius: 5, yRadius: 5).fill()
-            return
+        let strip = NSRect(x: edge == .left ? 0 : bounds.width - 14, y: anchorY - 54, width: 14, height: 108)
+        NSColor.black.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: strip, xRadius: 7, yRadius: 7).fill()
+        let colors = notes.isEmpty ? [0] : notes.map(\.colorIndex)
+        let gap: CGFloat = 4
+        let height = min(16, (92 - gap * CGFloat(colors.count - 1)) / CGFloat(colors.count))
+        let total = CGFloat(colors.count) * height + CGFloat(colors.count - 1) * gap
+        var y = anchorY + total / 2 - height
+        for color in colors {
+            Theme.nsColor(color).setFill()
+            NSBezierPath(roundedRect: NSRect(x: strip.midX - 3, y: y, width: 6, height: max(1, height)), xRadius: 3, yRadius: 3).fill()
+            y -= height + gap
         }
-        let gap: CGFloat = notes.count < 30 ? 2 : 0
-        let segmentHeight = min(18, max(0.2, (rect.height - gap * CGFloat(notes.count - 1)) / CGFloat(notes.count)))
-        let total = segmentHeight * CGFloat(notes.count) + gap * CGFloat(notes.count - 1)
-        var y = anchorY + total / 2 - segmentHeight
-        for note in notes {
-            Theme.nsColor(note.colorIndex).setFill()
-            NSBezierPath(roundedRect: NSRect(x: rect.minX, y: y, width: rect.width, height: segmentHeight), xRadius: 5, yRadius: 5).fill()
-            y -= segmentHeight + gap
-        }
-        drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
     }
 
     private func drawDeck() {
