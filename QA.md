@@ -1,3 +1,16 @@
+# UI correction follow-up — 2026-09-22
+
+- Restored the reference's thin resting stripes and hover collapse/expand behavior.
+- Kept the stripe hit area active throughout opening animation; restored stripe dragging and card reordering.
+- Made the timestamp row and top margin of open notes draggable, including the first click while inactive.
+- Added native Markdown presentation using Foundation parsing and source-index glyph hiding. Plain Markdown remains unchanged; no rich-text persistence or replacement editor.
+- Fixed checkbox/bullet drawing after NSTextView modifies the graphics clip; added actual italic-font fallback for the rounded system face.
+- **33 tests passed, zero failures** using the test command below. Tests include native rendered-image attachments, drag/reorder/hover transitions, header hit testing, unchanged Markdown source, checked/unchecked controls, and native undo/IME safety.
+- Inspected the rendered editor and resting-stripe image attachments. Full interactive macOS QA remains assigned to the user.
+- Result: `build/Logs/Test/Test-SHIORI-2026.09.22_11-52-20-+0000.xcresult`.
+
+---
+
 # Utility milestone — 2026-09-22
 
 Implementation and automated validation are complete. Interactive acceptance testing is assigned to the user; the historical record below is not evidence for the new features.
