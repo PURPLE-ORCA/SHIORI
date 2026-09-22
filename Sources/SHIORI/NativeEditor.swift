@@ -313,7 +313,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         for item in listItems where !item.isChecklist {
             let glyph = layoutManager.glyphIndexForCharacter(at: min(item.contentRange.location, string.utf16.count - 1))
             let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let x = textContainerOrigin.x + line.minX + layoutManager.location(forGlyphAt: glyph).x
+            let x = textContainerOrigin.x + line.minX + (item.indentation as NSString).size(withAttributes: [.font: Theme.bodyFont]).width
             let y = textContainerOrigin.y + line.midY
             if Int(item.marker.dropLast()) != nil {
                 let attributes: [NSAttributedString.Key: Any] = [.font: Theme.roundedFont(size: 13), .foregroundColor: NSColor.black.withAlphaComponent(0.7)]
@@ -371,7 +371,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
             let glyphIndex = glyphRange.location
             let rect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let lineRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-            let checkbox = NSRect(x: lineRect.minX + layoutManager.location(forGlyphAt: glyphIndex).x - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
+            let checkbox = NSRect(x: lineRect.minX + (task.indentation as NSString).size(withAttributes: [.font: Theme.bodyFont]).width - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
             result.append(CheckboxHit(task: task, rect: checkbox))
         }
         return result
