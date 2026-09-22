@@ -36,6 +36,7 @@ final class DockTests: XCTestCase {
     }
     @MainActor
     func testRestingStripesDragAndReturnAfterHover() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = try await NoteRepository.open(at: root.appendingPathComponent("notes.sqlite"))

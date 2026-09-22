@@ -183,6 +183,7 @@ final class MilestoneTests: XCTestCase {
     }
 
     func testFloatingVisibilityPreservesPinAndGeometry() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let (root, repository) = try await database()
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "tests.\(UUID().uuidString)"
@@ -215,6 +216,7 @@ final class MilestoneTests: XCTestCase {
     }
 
     func testEdgeTabsCoverConnectedDisplaysAndReuseEditor() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let screens = NSScreen.screens
         guard screens.count >= 2 else { throw XCTSkip("Requires two connected displays") }
         let (root, repository) = try await database()

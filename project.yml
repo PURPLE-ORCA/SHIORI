@@ -63,3 +63,5 @@ schemes:
         SHIORITests: [test]
     test:
       targets: [SHIORITests]
+      environmentVariables:
+        SHIORI_RUN_WINDOW_TESTS: "$(SHIORI_RUN_WINDOW_TESTS)"

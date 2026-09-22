@@ -32,6 +32,7 @@ final class PrivacyMotionTests: XCTestCase {
     }
 
     func testPrivacyCoversLiveSurfacesAndRetainsDraftsWindowsAndLifecycle() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let suite = "tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -121,6 +122,7 @@ final class PrivacyMotionTests: XCTestCase {
     }
 
     func testAuthenticationFailuresStaleRepliesAndSpatialTransitionCleanup() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
         let suite = "tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }

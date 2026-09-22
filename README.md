@@ -15,6 +15,8 @@ xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derive
 open build/Build/Products/Debug/SHIORI.app
 ```
 
+Routine tests skip five desktop-interactive checks that visibly open, close and focus temporary notes. To run all 41 tests, add `SHIORI_RUN_WINDOW_TESTS=1` to the `xcodebuild ... test` command. Run those separately from launching the app; they use isolated data but control real windows on the current desktop.
+
 The local app is ad-hoc signed; no paid developer account is needed. It is not a notarized distribution. Regenerate the included Xcode project after adding/removing sources with `xcodegen generate`.
 
 ## Use

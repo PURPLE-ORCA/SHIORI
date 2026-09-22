@@ -1,9 +1,15 @@
+# Startup investigation — 2026-09-22
+
+- Only one normal SHIORI process was running. A quit/relaunch sampled for six seconds showed the same two narrow edge panels throughout, without editors opening.
+- Five integration tests intentionally show real windows, including repeated open/close and privacy cycles. They now require explicit `SHIORI_RUN_WINDOW_TESTS=1`; routine tests do not run those desktop interactions. No production startup behavior or user data was changed.
+- Verification after this change: 36 routine tests passed, five desktop-interactive tests explicitly skipped; app build succeeded. The 41-test result below predates this opt-in change.
+
 # Interaction polish and privacy — 2026-09-22
 
 Current automated evidence: **41 tests pass**, including whitespace rendering and invalid Markdown coordinate regressions. Full app build is run after the suite.
 
 ```sh
-xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build test
+xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build SHIORI_RUN_WINDOW_TESTS=1 test
 xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath build build
 ```
 
