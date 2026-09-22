@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 /// A native NSTextView bridge for a note body. The binding is updated from the
 /// text view delegate; updateNSView only applies an external value when it is
@@ -132,9 +133,9 @@ public struct NativeEditor: NSViewRepresentable {
         }
 
         fileprivate func focus() {
-            guard let view else { return }
+            guard let view, !view.isHiddenOrHasHiddenAncestor else { return }
             DispatchQueue.main.async {
-                guard let window = view.window else { return }
+                guard let window = view.window, !view.isHiddenOrHasHiddenAncestor else { return }
                 window.makeKeyAndOrderFront(nil)
                 window.makeFirstResponder(view)
             }
@@ -274,9 +275,10 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
 
     override public func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let hit = checkboxHits().first(where: { $0.rect.contains(point) }),
+        if let hit = checkboxHits().first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
            let edit = ChecklistEngine.toggleTask(intersecting: hit.task.lineRange, in: string) {
             apply(edit)
+            animateCheckbox(at: hit.rect)
             return
         }
         super.mouseDown(with: event)
@@ -352,19 +354,37 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         }
     }
 
+    private func animateCheckbox(at rect: NSRect) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        wantsLayer = true
+        let pulse = CAShapeLayer()
+        pulse.path = CGPath(roundedRect: rect, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        pulse.fillColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        pulse.opacity = 0
+        layer?.addSublayer(pulse)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak pulse] in pulse?.removeFromSuperlayer() }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1; fade.toValue = 0; fade.duration = Theme.Motion.checklist
+        pulse.add(fade, forKey: "check")
+        CATransaction.commit()
+    }
+
     private func drawCheckboxes(in dirtyRect: NSRect) {
         guard let layoutManager, let textContainer else { return }
         let hits = checkboxHits(layoutManager: layoutManager, textContainer: textContainer)
         for hit in hits where hit.rect.intersects(dirtyRect) {
             let path = NSBezierPath(roundedRect: hit.rect, xRadius: 3.5, yRadius: 3.5)
             (hit.task.isChecked ? NSColor.black.withAlphaComponent(0.7) : NSColor.black.withAlphaComponent(0.55)).setStroke()
-            path.lineWidth = 1.2
+            if hit.task.isChecked { NSColor.black.withAlphaComponent(0.06).setFill(); path.fill() }
+            path.lineWidth = 1.1
             path.stroke()
             if hit.task.isChecked {
                 let check = NSBezierPath()
                 check.move(to: NSPoint(x: hit.rect.minX + 3, y: hit.rect.midY))
                 check.line(to: NSPoint(x: hit.rect.midX - 1, y: hit.rect.maxY - 3))
                 check.line(to: NSPoint(x: hit.rect.maxX - 2.5, y: hit.rect.minY + 3))
+                check.lineCapStyle = .round; check.lineJoinStyle = .round
                 check.lineWidth = 1.4
                 NSColor.black.withAlphaComponent(0.8).setStroke()
                 check.stroke()
@@ -397,7 +417,10 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
             let glyphIndex = glyphRange.location
             let rect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let lineRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-            let checkbox = NSRect(x: lineRect.minX + (task.indentation as NSString).size(withAttributes: [.font: bodyFont]).width - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
+            let size = min(17, max(13, bodyFont.pointSize * 0.75))
+            let baseline = lineRect.minY + layoutManager.location(forGlyphAt: glyphIndex).y
+            let center = baseline - bodyFont.xHeight / 2
+            let checkbox = NSRect(x: lineRect.minX + (task.indentation as NSString).size(withAttributes: [.font: bodyFont]).width - 22, y: center - size / 2, width: size, height: size)
             result.append(CheckboxHit(task: task, rect: checkbox))
         }
         return result

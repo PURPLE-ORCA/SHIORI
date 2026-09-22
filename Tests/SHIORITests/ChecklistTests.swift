@@ -82,14 +82,18 @@ final class ChecklistTests: XCTestCase {
         XCTAssertEqual(editor.string, source)
         XCTAssertFalse(editor.undoManager?.canUndo ?? false)
         editor.backgroundColor = Theme.nsColor(0)
-        let bitmap = try XCTUnwrap(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
-        editor.cacheDisplay(in: editor.bounds, to: bitmap)
-        let image = NSImage(size: editor.bounds.size)
-        image.addRepresentation(bitmap)
-        let attachment = XCTAttachment(image: image)
-        attachment.name = "Native Markdown rendering"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        for face in NoteBodyFont.allCases {
+            editor.setBodyFont(face.resolve(size: 18))
+            layout.ensureLayout(for: container)
+            let bitmap = try XCTUnwrap(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
+            editor.cacheDisplay(in: editor.bounds, to: bitmap)
+            let image = NSImage(size: editor.bounds.size)
+            image.addRepresentation(bitmap)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "Native Markdown rendering - " + face.rawValue
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 
     @MainActor

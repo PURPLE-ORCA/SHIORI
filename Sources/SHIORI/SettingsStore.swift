@@ -101,8 +101,18 @@ enum Theme {
     static var bodyFont: NSFont { roundedFont(size: 16) }
     enum Motion {
         static let deckOpen = 0.24
-        static let deckClose = 0.28
-        static let hover = 0.18
+        static let deckClose = 0.24
+        static let hover = 0.17
+        static let editorOpen = 0.27
+        static let editorClose = 0.24
+        static let create = 0.27
+        static let checklist = 0.16
+        static func duration(_ duration: Double, reduceMotion: Bool) -> Double { reduceMotion ? 0.12 : duration }
+        // Normalized critically damped response: physical settling without overshoot.
+        static func progress(_ t: Double) -> Double {
+            let t = min(1, max(0, t)), k = 7.0
+            return (1 - (1 + k * t) * exp(-k * t)) / (1 - (1 + k) * exp(-k))
+        }
     }
     static let corner: CGFloat = 16
     static let editorSize = NSSize(width: 360, height: 400)
