@@ -2,14 +2,16 @@
 
 This document breaks down the complete feature set, interaction models, UI/UX behaviors, and system architecture reverse-engineered from the application video recording (`HoleMyNotes.gif`) and the native macOS application bundle (`HoldMyNotes.app`).
 
+SHIORI status: `✔︎ done` marks implemented functionality. Parentheses narrow the claim where SHIORI differs from this reference. Unmarked items are not claimed as complete. All Notes and its search/restore interface were removed.
+
 ---
 
 ## 1. Architectural Overview & Core UX Concept
 
 **HoldMyNotes** is a minimalist, native macOS desktop productivity application designed around three foundational states:
-1. **The Edge Pill / Dock**: When resting, notes collapse into an unobtrusive vertical stripe/dock resting flush against the edge of the screen (right, left, or bottom). Each note is represented by a sliver in its distinct pastel color.
-2. **The Fanned Deck**: Moving the mouse to the screen edge smoothly fans out a stack of cards into view. Hovering over any card elevates it forward with realistic elevation shadows so you can read its content without opening it.
-3. **The Sticky Note / Editor Window**: Clicking a card expands it in place into a full-featured sticky note editor. Notes can either be closed back into the edge deck or pinned anywhere on the desktop as persistent floating windows.
+1. **The Edge Pill / Dock**: When resting, notes collapse into an unobtrusive vertical stripe/dock resting flush against the edge of the screen (right, left, or bottom). Each note is represented by a sliver in its distinct pastel color. — ✔︎ done (right/left edges only)
+2. **The Fanned Deck**: Moving the mouse to the screen edge smoothly fans out a stack of cards into view. Hovering over any card elevates it forward with realistic elevation shadows so you can read its content without opening it. — ✔︎ done (compact tabs with hover previews)
+3. **The Sticky Note / Editor Window**: Clicking a card expands it in place into a full-featured sticky note editor. Notes can either be closed back into the edge deck or pinned anywhere on the desktop as persistent floating windows. — ✔︎ done (plain-text/checklist editor)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -32,33 +34,33 @@ This document breaks down the complete feature set, interaction models, UI/UX be
 ## 2. Edge Dock & Deck Interaction System
 
 ### 2.1 The Edge Dock / Rest State
-- **Screen Edge Placement**: Defaults to the right edge of the primary display; configurable to Left or Bottom screen edges.
+- **Screen Edge Placement**: Defaults to the right edge of the primary display; configurable to Left or Bottom screen edges. — ✔︎ done (right/left; no bottom placement)
 - **Dock Visual Styles (`DockStyle`)**:
-  - **Coloured Dashes / Stripes (Default)**: A slim vertical pill composed of colored segments matching the exact color palette of the active notes.
+  - **Coloured Dashes / Stripes (Default)**: A slim vertical pill composed of colored segments matching the exact color palette of the active notes. — ✔︎ done
   - **Small Pile of Cards**: Miniature overlapping card representations hugging the screen border.
   - **Dots**: Minimalist dot indicators along the screen edge.
 - **Deck Anchor (`_deckAnchor`, `GripDots`)**:
-  - Vertical anchor handle with tactile grip dots.
-  - Allows dragging the entire deck up and down along the screen edge to position it at the user's preferred height.
-  - Position is persisted in preferences (`deckAnchor` offset).
+  - Vertical anchor handle with tactile grip dots. — ✔︎ done
+  - Allows dragging the entire deck up and down along the screen edge to position it at the user's preferred height. — ✔︎ done
+  - Position is persisted in preferences (`deckAnchor` offset). — ✔︎ done (normalized anchor)
 
 ### 2.2 Hover Activation & Fanning (`DeckActivation`, `DeckMover`)
-- **Hover Detection**: Moving the mouse cursor into the trigger zone at the screen edge engages the deck.
-- **Activation Delay (`_deckOpenDelay`)**: Configurable delay (prevents accidental opens when sweeping past the edge).
+- **Hover Detection**: Moving the mouse cursor into the trigger zone at the screen edge engages the deck. — ✔︎ done
+- **Activation Delay (`_deckOpenDelay`)**: Configurable delay (prevents accidental opens when sweeping past the edge). — ✔︎ done
 - **Fanning Animation**:
-  - Cards smoothly stagger-slide out from behind the screen bezel into an overlapping vertical cascade.
+  - Cards smoothly stagger-slide out from behind the screen bezel into an overlapping vertical cascade. — ✔︎ done
   - Uses fluid spring-physics animation with configurable speed ("How briskly the deck moves").
 - **Card Preview & Shadow Elevation (`DeckCardShadow`, `DeckCardSlot`)**:
-  - Hovering a specific card in the stack lifts that card forward along the Z-axis.
+  - Hovering a specific card in the stack lifts that card forward along the Z-axis. — ✔︎ done
   - Displays rich dynamic drop shadows while slightly dimming or pushing back adjacent cards.
-  - Note title, timestamp, and content snippet are immediately readable without clicking.
+  - Note title, timestamp, and content snippet are immediately readable without clicking. — ✔︎ done
 - **Card Reordering (`DragReorder`)**:
-  - Dragging a card vertically within the fanned deck reorders its position in the stack.
-  - Updates the `sortIndex` in the database in real time.
+  - Dragging a card vertically within the fanned deck reorders its position in the stack. — ✔︎ done
+  - Updates the `sortIndex` in the database in real time. — ✔︎ done (saved transactionally on drop, not every movement)
 
 ### 2.3 Creation Trigger (`BurstCreateCoordinator`, `CycleNoteButton`)
-- **Add Button (`+`)**: Positioned at the deck extremity (with hover highlight `_plusHovered`).
-- **One-Click Instant Create**: Clicking `+` immediately generates a new blank card with an expansion animation that places the caret right into the title field.
+- **Add Button (`+`)**: Positioned at the deck extremity (with hover highlight `_plusHovered`). — ✔︎ done (including animated entrance/exit)
+- **One-Click Instant Create**: Clicking `+` immediately generates a new blank card with an expansion animation that places the caret right into the title field. — ✔︎ done (creation and title focus; no create-from-button morph)
 
 ---
 
@@ -67,8 +69,8 @@ This document breaks down the complete feature set, interaction models, UI/UX be
 When clicked, a card expands from the deck into an active desktop note card.
 
 ### 3.1 Card Dimensions & Styling
-- **Default Dimensions**: Approximately `340px - 400px` width by `360px - 430px` height.
-- **Geometry**: Rounded corners (14px–16px corner radius) with subtle border contrast and macOS-style soft drop shadows.
+- **Default Dimensions**: Approximately `340px - 400px` width by `360px - 430px` height. — ✔︎ done (editor: 360 × 400 pt; previews are smaller)
+- **Geometry**: Rounded corners (14px–16px corner radius) with subtle border contrast and macOS-style soft drop shadows. — ✔︎ done
 - **Typography & Font Choices (`BodyFont`)**:
   - Bundled custom fonts:
     - **Nunito** (Modern, clean, legible rounded sans-serif)
@@ -76,38 +78,38 @@ When clicked, a card expands from the deck into an active desktop note card.
     - **Caveat** (Natural cursive pen handwriting)
     - **Comic Neue** (Playful casual print)
     - **Cascadia Code** & **Inconsolata** (Monospace coding style)
-    - **Helvetica / System Font**
+    - **Helvetica / System Font** — ✔︎ done (system fonts only)
 
 ### 3.2 Header Bar
-- **Date & Timestamp**: Displays human-readable relative/absolute date (e.g. `Mon 21 Sep 11:15`).
+- **Date & Timestamp**: Displays human-readable relative/absolute date (e.g. `Mon 21 Sep 11:15`). — ✔︎ done
 - **Note Title (`title`)**:
-  - Clean inline editable text input.
-  - Defaults to "Untitled note" for new notes.
-  - Enter or Tab shifts focus directly into the body text editor.
+  - Clean inline editable text input. — ✔︎ done
+  - Defaults to "Untitled note" for new notes. — ✔︎ done
+  - Enter or Tab shifts focus directly into the body text editor. — ✔︎ done
 - **Window Management Controls**:
-  - **Pin Icon / Desktop Pin (`pinned`)**: Toggles between resting in the edge deck or staying pinned persistently on the desktop.
-  - **Close Dot (`CloseDot`)**: Returns the card to the deck (saves automatically).
+  - **Pin Icon / Desktop Pin (`pinned`)**: Toggles between resting in the edge deck or staying pinned persistently on the desktop. — ✔︎ done
+  - **Close Dot (`CloseDot`)**: Returns the card to the deck (saves automatically). — ✔︎ done (close icon)
 
 ### 3.3 Body Editor (`ChecklistTextView`, `PlainTextEditor`)
-- **Zero-Friction Auto-Save**: No "Save" button. All keystrokes, title edits, color changes, and checklist state changes are written immediately to local SQLite storage with debounced disk commits.
+- **Zero-Friction Auto-Save**: No "Save" button. All keystrokes, title edits, color changes, and checklist state changes are written immediately to local SQLite storage with debounced disk commits. — ✔︎ done (debounced persistence, not an immediate disk write per keystroke)
 - **Plain / Markdown Text Engine**:
   - Markdown-aware plain text editing with formatted inline spans.
-  - Automatic newline continuation and list bullet indentation.
+  - Automatic newline continuation and list bullet indentation. — ✔︎ done (checklists)
 
 ### 3.4 Interactive Checklist System
-- **Syntax Trigger**: Typing `- ` (dash space) or `* ` at the beginning of a line instantly creates an interactive checklist item (`insertChecklistItem`).
+- **Syntax Trigger**: Typing `- ` (dash space) or `* ` at the beginning of a line instantly creates an interactive checklist item (`insertChecklistItem`). — ✔︎ done
 - **Checkbox UI**:
   - Custom circular checklist bullet to the left of the item text.
-  - **Interactive Toggling**: Clicking the circular bullet toggles the item between active and completed states.
+  - **Interactive Toggling**: Clicking the circular bullet toggles the item between active and completed states. — ✔︎ done (rounded-square checkbox)
   - **Completed State Styling**:
-    - Fills the circular checkbox with an accent color / check symbol.
-    - Applies animated strikethrough line decoration through the task text.
-    - Mutes/dims the text color slightly to visually emphasize remaining tasks.
-- **Keyboard Navigation**: Pressing Enter on a checklist item automatically creates a new checklist item on the subsequent line. Pressing Enter twice on an empty item cancels the checklist mode.
+    - Fills the circular checkbox with an accent color / check symbol. — ✔︎ done (checked indicator; rounded-square shape)
+    - Applies animated strikethrough line decoration through the task text. — ✔︎ done (static strikethrough; no strike animation)
+    - Mutes/dims the text color slightly to visually emphasize remaining tasks. — ✔︎ done
+- **Keyboard Navigation**: Pressing Enter on a checklist item automatically creates a new checklist item on the subsequent line. Pressing Enter twice on an empty item cancels the checklist mode. — ✔︎ done (Enter on an empty task exits)
 
 ---
 
-## 4. Color Palette & Theming System
+## 4. Color Palette & Theming System — ✔︎ done
 
 The application uses 5 signature pastel colors designed for high contrast and calming desktop aesthetics:
 
@@ -120,9 +122,9 @@ The application uses 5 signature pastel colors designed for high contrast and ca
 | **4** | **Lavender / Purple**| `#D7C6FE` | Distinct purple pastel for creative or long-term ideas |
 
 ### Live Color Switching Interaction:
-- Located along the bottom footer of the active note editor as circular color swatches (`Swatch`, `ColorWell`).
-- Clicking any color circle triggers an instant, fluid background repaint of the entire card window.
-- The corresponding stripe in the edge dock automatically reflects the new color immediately.
+- Located along the bottom footer of the active note editor as circular color swatches (`Swatch`, `ColorWell`). — ✔︎ done
+- Clicking any color circle triggers an instant, fluid background repaint of the entire card window. — ✔︎ done (immediate color update)
+- The corresponding stripe in the edge dock automatically reflects the new color immediately. — ✔︎ done
 - Keyboard shortcut `Next colour` allows cycling colors rapidly without using the mouse.
 
 ---
@@ -138,7 +140,7 @@ The footer of an open note card contains a unified, compact control strip:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Color Swatch Palette**: 5 circular color buttons representing the themes.
+1. **Color Swatch Palette**: 5 circular color buttons representing the themes. — ✔︎ done
 2. **Typography / Format Bar (`Aa`, `FormatBarController`)**:
    - Toggles a popover/flyout tray (`TrayMenu`, `TrayToggle`).
    - Font switcher (Caveat, Virgil, Nunito, Cascadia Code, etc.).
@@ -146,19 +148,19 @@ The footer of an open note card contains a unified, compact control strip:
    - Format toggles: Bold, Italic, Strikethrough, Checklist item insertion, Link prompt.
 3. **Divider Line**: Subtle vertical divider separating editing tools from window actions.
 4. **"Complete" Button (`doneAt`, `archivedAt`)**:
-   - Branded action pill button with checkmark icon.
-   - Marks all tasks as done, archives the note, and smoothly animates it out of the active deck into the archive.
-5. **"Close" Button**: Dismisses the editor and smoothly folds the note back into its respective slot in the edge deck.
+   - Branded action pill button with checkmark icon. — ✔︎ done (compact checkmark action)
+   - Marks all tasks as done, archives the note, and smoothly animates it out of the active deck into the archive. — ✔︎ done (recognized checklists; archived data retained)
+5. **"Close" Button**: Dismisses the editor and smoothly folds the note back into its respective slot in the edge deck. — ✔︎ done
 
 ---
 
 ## 6. Desktop Pinning & Multi-Window Behavior (`StickyWindowManager`)
 
-- **Independent Floating Windows**: Any card can be pinned onto the desktop (`_lockNotes`, `StickyNoteWindow`).
+- **Independent Floating Windows**: Any card can be pinned onto the desktop (`_lockNotes`, `StickyNoteWindow`). — ✔︎ done
 - **Freeform Dragging (`WindowDragArea`, `DragView`)**:
-  - Grab anywhere on the note header to drag it across multi-monitor setups.
-  - Window frame coordinates (`{origin, size}`) are persisted per-note UUID in app preferences (e.g. `stickyFrame-<UUID>`).
-- **Z-Order Layering**: Pinned notes remain visible on the desktop.
+  - Grab anywhere on the note header to drag it across multi-monitor setups. — ✔︎ done (header drag area; multi-monitor behavior unverified)
+  - Window frame coordinates (`{origin, size}`) are persisted per-note UUID in app preferences (e.g. `stickyFrame-<UUID>`). — ✔︎ done
+- **Z-Order Layering**: Pinned notes remain visible on the desktop. — ✔︎ done
 - **Show Over Full-Screen Apps (`FullScreenSpace`, `toggleFullScreen`)**:
   - Accessory mode (`LSUIElement: true`) allows windows to float over native full-screen applications, Mission Control spaces, and IDEs.
 
@@ -177,7 +179,7 @@ The footer of an open note card contains a unified, compact control strip:
 - **Instant Search**: Type in the search field to filter notes across titles, body text, and tags simultaneously with diacritics removal and prefix matching.
 
 ### 7.2 Archive Management
-- **Archiving Workflow**: Notes completed with the "Complete" button leave the active deck but remain fully preserved in `notes.sqlite` (`archivedAt` timestamp).
+- **Archiving Workflow**: Notes completed with the "Complete" button leave the active deck but remain fully preserved in `notes.sqlite` (`archivedAt` timestamp). — ✔︎ done
 - **Archive Window (`ArchiveView`, `ArchiveWindowBridge`)**:
   - Dedicated searchable view listing all completed and archived notes.
   - Live side-by-side note preview.

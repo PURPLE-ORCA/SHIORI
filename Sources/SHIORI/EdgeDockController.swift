@@ -782,6 +782,9 @@ private final class DockView: NSView {
         }
         drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
 
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current?.cgContext.setAlpha(deckProgress)
         let plus = plusFrame
         NSColor(white: plusHovered ? 1 : 0.94, alpha: 0.98).setFill()
         plusPath.fill()
@@ -924,7 +927,8 @@ private final class DockView: NSView {
     }
 
     private var plusFrame: NSRect {
-        let x = edge == .left ? 9 : bounds.width - 9 - Self.plusDiameter
+        let restingX = edge == .left ? 9 : bounds.width - 9 - Self.plusDiameter
+        let x = restingX + (edge == .left ? -1 : 1) * 16 * (1 - deckProgress)
         return NSRect(x: x, y: (Self.plusHeight - Self.plusDiameter) / 2, width: Self.plusDiameter, height: Self.plusDiameter)
     }
 
