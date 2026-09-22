@@ -103,9 +103,9 @@ enum Theme {
         static let deckOpen = 0.24
         static let deckClose = 0.24
         static let hover = 0.17
-        static let editorOpen = 0.27
-        static let editorClose = 0.24
-        static let create = 0.27
+        static let editorOpen = 0.18
+        static let editorClose = 0.17
+        static let create = 0.18
         static let checklist = 0.16
         static func duration(_ duration: Double, reduceMotion: Bool) -> Double { reduceMotion ? 0.12 : duration }
         // Normalized critically damped response: physical settling without overshoot.

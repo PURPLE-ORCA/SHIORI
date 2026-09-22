@@ -43,7 +43,7 @@ Settings includes Launch at Login through [SMAppService.mainApp](https://develop
 
 ## Motion and privacy
 
-Notes open from their edge location and return there when closed/unpinned. Creation uses the relevant display’s plus location. Native window transitions last 240–270 ms; Reduce Motion uses a restrained fade. Hover depth settles without overshoot. Checkbox alignment follows the body font, with a brief checked-state highlight; text strikethrough remains static.
+Notes open from their edge location and return there when closed/unpinned. Creation uses the relevant display’s plus location. Native window transitions last 170–180 ms; Reduce Motion uses a restrained fade. Hover depth settles without overshoot. Checkbox alignment follows the body font, with a brief checked-state highlight; text strikethrough remains static.
 
 Settings → Privacy enables one global Touch ID lock. Enabling verifies biometrics first; a fresh launch starts locked. Locked editors keep their windows, geometry and drafts behind a native cover, edge labels/previews are concealed, and Quick Search closes. Unlock SHIORI is available in the menu and locked surfaces. Authentication cancellation/failure keeps content hidden, and disabling the preference while locked also requires authentication. No database encryption is performed.
 
