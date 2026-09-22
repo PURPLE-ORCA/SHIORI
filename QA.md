@@ -1,6 +1,6 @@
 # Interaction polish and privacy — 2026-09-22
 
-Current automated evidence: **39 tests pass**, from a clean baseline of 37. Full app build is run after the suite.
+Current automated evidence: **41 tests pass**, including whitespace rendering and invalid Markdown coordinate regressions. Full app build is run after the suite.
 
 ```sh
 xcodebuild -project SHIORI.xcodeproj -scheme SHIORI -configuration Debug -derivedDataPath /tmp/shiori-font-build test

@@ -97,6 +97,43 @@ final class ChecklistTests: XCTestCase {
     }
 
     @MainActor
+    func testTrailingSpacesLayOutImmediatelyAndReturnKeepsUnicodeSafe() throws {
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        editor.isRichText = false; editor.allowsUndo = true
+        for prefix in ["Café", "مرحبا 😀", "**bold**", "- item", "- [ ] task"] {
+            editor.string = prefix
+            editor.setSelectedRange(NSRange(location: prefix.utf16.count, length: 0))
+            editor.insertText(" ", replacementRange: editor.selectedRange())
+            let layout = try XCTUnwrap(editor.layoutManager)
+            layout.ensureLayout(for: editor.textContainer!)
+            let glyph = layout.glyphIndexForCharacter(at: editor.string.utf16.count - 1)
+            XCTAssertFalse(layout.propertyForGlyph(at: glyph).contains(.null), prefix)
+            XCTAssertEqual(editor.string, prefix + " ")
+            editor.insertNewline(nil)
+            XCTAssertTrue(editor.string.contains(prefix + " \n"))
+        }
+    }
+
+    @MainActor
+    func testMarkdownSourceCoordinatesRejectInvalidBoundsWithoutTrapping() throws {
+        let source = "**Café 😀**\r\nمرحبا\rnext"
+        let map = MarkdownPresentation.SourceMap(source)
+        let valid = AttributedString.MarkdownSourcePosition(startLine: 1, startColumn: 3, endLine: 1, endColumn: 12)
+        XCTAssertEqual(map.range(valid), (source as NSString).range(of: "Café 😀"))
+        for position in [
+            AttributedString.MarkdownSourcePosition(startLine: 0, startColumn: 1, endLine: 1, endColumn: 1),
+            .init(startLine: 1, startColumn: 1, endLine: 99, endColumn: 1),
+            .init(startLine: 1, startColumn: 1, endLine: 1, endColumn: Int.max),
+            .init(startLine: 1, startColumn: 7, endLine: 1, endColumn: 12)
+        ] { XCTAssertNil(map.range(position)) }
+        for text in [source, "😀\n", "\n\n", "**e\u{301}**\n", "- [ ] مرحبا\n\n", "a  \nb\n", "```\n😀\n```\n"] {
+            let presentation = MarkdownPresentation(source: text, baseAttributes: [.font: Theme.bodyFont])
+            XCTAssertEqual(presentation.text.string, text)
+            XCTAssertTrue(presentation.hidden.allSatisfy { $0 < text.utf16.count })
+        }
+    }
+
+    @MainActor
     func testTypingListsContinuesVisibleEmptyItemsAndSupportsUndo() throws {
         let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 340, height: 240))
         let window = NSWindow(contentRect: editor.frame, styleMask: .borderless, backing: .buffered, defer: true)
