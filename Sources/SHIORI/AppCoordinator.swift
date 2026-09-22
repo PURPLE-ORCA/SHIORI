@@ -32,6 +32,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var searchController: QuickSearchController?
     var shortcuts: GlobalShortcutCoordinator?
     var terminating = false
+    let appAttachment = AppAttachmentContext()
+    private var appVisibilitySubscription: AnyCancellable?
 
     init(settings suppliedSettings: SettingsStore? = nil, authenticator: NoteAuthenticator? = nil) {
         let override = ProcessInfo.processInfo.environment["SHIORI_DATA_DIR"]
@@ -72,6 +74,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func installLifecycleObservers() {
         guard !lifecycleInstalled else { return }
         lifecycleInstalled = true
+        // Window close/minimize events in other apps have no NSWorkspace notification.
+        appVisibilitySubscription = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshAppVisibility() }
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
@@ -81,17 +87,35 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for name in [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.screensDidSleepNotification] {
             workspace.addObserver(self, selector: #selector(relock), name: name, object: nil)
         }
+        for name in [NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
+            workspace.addObserver(self, selector: #selector(refreshAppVisibility), name: name, object: nil)
+        }
+        workspace.addObserver(self, selector: #selector(applicationTerminated), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         workspace.addObserver(self, selector: #selector(applicationActivated), name: NSWorkspace.didActivateApplicationNotification, object: nil)
     }
+    @objc func refreshAppVisibility() {
+        guard let windows, windows.store.active.contains(where: { $0.pinned && $0.attachedAppBundleIdentifier != nil }) else { return }
+        windows.refreshVisibility()
+    }
     func removeLifecycleObservers() {
+        appVisibilitySubscription = nil
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         lifecycleInstalled = false
     }
     @objc func applicationActivated(_ notification: Notification) {
+        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            appAttachment.record(app)
+            windows?.refreshVisibility()
+        }
         // The public workspace activation event also covers the login/lock screen becoming frontmost.
         if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
            app.bundleIdentifier == "com.apple.loginwindow" { relock() }
+    }
+    @objc func applicationTerminated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        appAttachment.terminated(app)
+        windows?.refreshVisibility()
     }
     @objc func relock() { privacy.lock() }
     @objc func unlockNotes() { privacy.perform {} }
@@ -133,7 +157,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 settings.initialized = true
             }
             store = loaded
-            let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, reportError: { [weak self] error in self?.present(error) })
+            let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, reportError: { [weak self] error in self?.present(error) })
             windows = manager
             manager.edgeFrame = { [weak self] id, screen in
                 guard let self else { return nil }

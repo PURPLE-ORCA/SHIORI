@@ -10,6 +10,7 @@ public struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable, E
     public var title: String
     public var body: String
     public var colorIndex: Int
+    public var attachedAppBundleIdentifier: String?
     public var pinned: Bool
     public let createdAt: Double
     public var updatedAt: Double
@@ -123,6 +124,9 @@ public final class NoteRepository: @unchecked Sendable {
         migrator.registerMigration("002_soft_delete") { db in
             try db.execute(sql: "ALTER TABLE note ADD COLUMN deletedAt REAL")
         }
+        migrator.registerMigration("003_app_attachment") { db in
+            try db.execute(sql: "ALTER TABLE note ADD COLUMN attachedAppBundleIdentifier TEXT")
+        }
         try migrator.migrate(queue)
     }
 
@@ -208,6 +212,16 @@ public final class NoteRepository: @unchecked Sendable {
             try db.execute(
                 sql: "UPDATE note SET colorIndex = ?, updatedAt = MAX(updatedAt, ?) WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
                 arguments: [colorIndex, updatedAt, id]
+            )
+            guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
+        }
+    }
+
+    public func setAttachedApp(id: String, bundleIdentifier: String?) async throws {
+        try await queue.write { db in
+            try db.execute(
+                sql: "UPDATE note SET attachedAppBundleIdentifier = ?, pinned = CASE WHEN ? IS NULL THEN pinned ELSE 1 END WHERE id = ? AND archivedAt IS NULL AND deletedAt IS NULL",
+                arguments: [bundleIdentifier, bundleIdentifier, id]
             )
             guard db.changesCount == 1 else { throw NoteRepositoryError.noteUnavailable }
         }

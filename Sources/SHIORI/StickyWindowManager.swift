@@ -3,6 +3,62 @@ import SwiftUI
 import QuartzCore
 import Combine
 
+@MainActor
+final class AppAttachmentContext: ObservableObject {
+    @Published private(set) var currentBundleIdentifier: String?
+    private var currentApplication: NSRunningApplication?
+    private(set) var hasVisibleWindow = false
+    var windowInfo: () -> [[String: Any]] = {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+
+    init() {
+        if let app = NSWorkspace.shared.frontmostApplication { record(app) }
+    }
+
+    static func eligible(_ app: NSRunningApplication) -> Bool {
+        app.activationPolicy == .regular &&
+        app.processIdentifier != ProcessInfo.processInfo.processIdentifier &&
+        app.bundleIdentifier != nil
+    }
+
+    func record(_ app: NSRunningApplication) {
+        guard Self.eligible(app) else { return }
+        currentApplication = app
+        currentBundleIdentifier = app.bundleIdentifier
+        refreshWindowVisibility()
+    }
+
+    func terminated(_ app: NSRunningApplication) {
+        if app.bundleIdentifier == currentBundleIdentifier {
+            currentApplication = nil
+            currentBundleIdentifier = nil
+            hasVisibleWindow = false
+        }
+    }
+
+    func refreshWindowVisibility() {
+        guard let app = currentApplication, !app.isTerminated, !app.isHidden else {
+            hasVisibleWindow = false
+            return
+        }
+        hasVisibleWindow = windowInfo().contains { window in
+            guard window[kCGWindowOwnerPID as String] as? pid_t == app.processIdentifier,
+                  window[kCGWindowLayer as String] as? Int == 0,
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
+            return rect.width > 0 && rect.height > 0
+        }
+    }
+
+    var runningApps: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter(Self.eligible).sorted {
+            ($0.localizedName ?? "").localizedStandardCompare($1.localizedName ?? "") == .orderedAscending
+        }
+    }
+}
+
 final class StickyPanel: NSPanel {
     var requestClose: (() -> Void)?
     var requestUnlock: (() -> Void)?
@@ -22,6 +78,7 @@ final class StickyPanel: NSPanel {
 
 @MainActor
 final class StickyWindowManager: NSObject, NSWindowDelegate {
+    let appAttachment: AppAttachmentContext
     let store: NotesStore
     let settings: SettingsStore
     let reportError: (Error) -> Void
@@ -40,7 +97,8 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     var transitioningCount: Int { transitions.count }
 
-    init(store: NotesStore, settings: SettingsStore, privacy: PrivacyLock? = nil, reportError: @escaping (Error) -> Void) {
+    init(store: NotesStore, settings: SettingsStore, privacy: PrivacyLock? = nil, appAttachment: AppAttachmentContext = AppAttachmentContext(), reportError: @escaping (Error) -> Void) {
+        self.appAttachment = appAttachment
         self.store = store; self.settings = settings; self.privacy = privacy; self.reportError = reportError
         super.init()
         privacySubscription = privacy?.$isLocked.sink { [weak self] locked in
@@ -97,7 +155,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
         window.delegate = self
         window.requestClose = { [weak self] in self?.close(id) }
-        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, id: id, focusTitle: focusTitle,
+        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, appAttachment: appAttachment, attach: { [weak self] bundleID in self?.attach(id, to: bundleID) }, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
         if let privacy {
             let unlock: () -> Void = { [weak privacy] in privacy?.perform {} }
@@ -138,7 +196,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         }
     }
     func restorePinned() {
-        for note in store.notes where note.pinned && note.archivedAt == nil && note.deletedAt == nil { show(note.id, near: nil, focusTitle: false, activate: false) }
+        refreshVisibility()
     }
     func closeTransient(except id: String? = nil) async throws {
         if let current = transient, current != id {
@@ -239,13 +297,36 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         settings.saveFrame(stableFrames[id] ?? window.frame, id: id, display: display)
     }
     func saveAllGeometry() { for id in windows.keys { saveGeometry(id) } }
-    func toggleHidden() {
-        hidden.toggle()
-        for (id, window) in windows where store.notes.first(where: { $0.id == id })?.pinned == true {
-            if hidden { window.orderOut(nil) } else { window.orderFrontRegardless() }
+    func attach(_ id: String, to bundleIdentifier: String?) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.attach(id, to: bundleIdentifier) }; return }
+        Task {
+            do {
+                try await store.setAttachedApp(id, bundleIdentifier: bundleIdentifier)
+                if bundleIdentifier != nil, transient == id { transient = nil }
+                refreshVisibility()
+            } catch { reportError(error) }
         }
     }
-    func refreshVisibility() { for window in windows.values { window.collectionBehavior = settings.collectionBehavior } }
+    func matchesApp(_ note: Note) -> Bool {
+        note.attachedAppBundleIdentifier == nil || (note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier && appAttachment.hasVisibleWindow)
+    }
+    func toggleHidden() {
+        hidden.toggle()
+        refreshVisibility()
+    }
+    func refreshVisibility() {
+        appAttachment.refreshWindowVisibility()
+        for note in store.active where note.pinned && matchesApp(note) && !hidden && windows[note.id] == nil {
+            show(note.id, near: nil, focusTitle: false, activate: false)
+        }
+        for (id, window) in windows {
+            window.collectionBehavior = settings.collectionBehavior
+            guard let note = store.note(id: id) else { window.orderOut(nil); continue }
+            if note.archivedAt != nil || note.deletedAt != nil || (note.pinned && (hidden || !matchesApp(note))) {
+                window.orderOut(nil)
+            } else if !window.isVisible { window.orderFrontRegardless() }
+        }
+    }
     func clampWindows() {
         for (id, window) in windows {
             guard stableFrames[id] == nil else { continue }
@@ -276,6 +357,8 @@ struct HeaderDragArea: NSViewRepresentable {
 struct StickyEditorView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var store: NotesStore
+    @ObservedObject var appAttachment: AppAttachmentContext
+    let attach: (String?) -> Void
     let id: String
     let focusTitle: Bool
     let close: () -> Void
@@ -333,6 +416,25 @@ struct StickyEditorView: View {
                         }.labelStyle(.iconOnly).buttonStyle(.plain)
                             .help(store.saveError(id) ?? "Couldn’t save this note. Click to retry.")
                     }
+                    Menu {
+                        Button("Attach to Current App") { attach(appAttachment.currentBundleIdentifier) }
+                            .disabled(appAttachment.currentBundleIdentifier == nil)
+                        Menu("Attach to Running App") {
+                            ForEach(appAttachment.runningApps, id: \.processIdentifier) { app in
+                                Button(app.localizedName ?? app.bundleIdentifier ?? "") { attach(app.bundleIdentifier) }
+                            }
+                        }
+                        if let bundleID = note.attachedAppBundleIdentifier {
+                            let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+                                .map { FileManager.default.displayName(atPath: $0.path) } ?? bundleID
+                            Text("Attached to " + name)
+                            Button("Detach from App") { attach(nil) }
+                        }
+                    } label: {
+                        Image(systemName: note.attachedAppBundleIdentifier == nil ? "link" : "link.circle.fill")
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .accessibilityLabel("App attachment")
                     Button("Aa") { formatting.toggle() }
                         .buttonStyle(.plain).accessibilityLabel("Format Markdown")
                         .popover(isPresented: $formatting) {

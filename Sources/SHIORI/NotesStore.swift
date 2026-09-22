@@ -168,6 +168,17 @@ public final class NotesStore: ObservableObject {
         try await task.value
     }
 
+    public func setAttachedApp(_ id: String, bundleIdentifier: String?) async throws {
+        guard !isBusy(id) else { throw StoreError.busy }
+        busyIDs.insert(id); defer { finishOperation(id) }
+        try await flush(id)
+        try await repository.setAttachedApp(id: id, bundleIdentifier: bundleIdentifier)
+        if let index = notes.firstIndex(where: { $0.id == id }) {
+            notes[index].attachedAppBundleIdentifier = bundleIdentifier
+            if bundleIdentifier != nil { notes[index].pinned = true }
+        }
+    }
+
     public func setPinned(_ id: String, pinned: Bool) async throws {
         guard !isBusy(id) else { throw StoreError.busy }
         busyIDs.insert(id); defer { finishOperation(id) }
