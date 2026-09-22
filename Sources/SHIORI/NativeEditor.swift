@@ -10,6 +10,7 @@ public struct NativeEditor: NSViewRepresentable {
 
     @Binding public var text: String
     private let focusBinding: Binding<Bool>?
+    private let bodyFont: NSFont?
     private let focusToken: Int?
     private var onReady: ((ChecklistTextView) -> Void)?
     private let onTextChange: ((String) -> Void)?
@@ -18,12 +19,14 @@ public struct NativeEditor: NSViewRepresentable {
         text: Binding<String>,
         focus: Binding<Bool>? = nil,
         focusToken: Int? = nil,
-        onTextChange: ((String) -> Void)? = nil
+        onTextChange: ((String) -> Void)? = nil,
+        bodyFont: NSFont? = nil
     ) {
         _text = text
         focusBinding = focus
         self.focusToken = focusToken
         self.onTextChange = onTextChange
+        self.bodyFont = bodyFont
     }
 
     func connecting(_ onReady: @escaping (ChecklistTextView) -> Void) -> Self {
@@ -38,7 +41,7 @@ public struct NativeEditor: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSScrollView {
         let textView = ChecklistTextView(frame: .zero)
-        let bodyFont = Theme.bodyFont
+        let bodyFont = bodyFont ?? Theme.bodyFont
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 3
         paragraphStyle.paragraphSpacing = 4
@@ -70,6 +73,7 @@ public struct NativeEditor: NSViewRepresentable {
             .foregroundColor: NSColor.black.withAlphaComponent(0.84),
             .paragraphStyle: paragraphStyle
         ]
+        textView.setBodyFont(bodyFont)
         textView.refreshChecklistAppearance()
 
         let scrollView = NSScrollView(frame: .zero)
@@ -89,6 +93,7 @@ public struct NativeEditor: NSViewRepresentable {
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = nsView.documentView as? ChecklistTextView else { return }
+        textView.setBodyFont(bodyFont ?? Theme.bodyFont)
         textView.isEditable = context.environment.isEnabled
         textView.isSelectable = true
 
@@ -153,6 +158,25 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
     private var hiddenSyntax = IndexSet()
     private var listItems: [ChecklistEngine.ListItem] = []
     private var applyingPresentation = false
+    private(set) var bodyFont = Theme.bodyFont
+    private var pendingBodyFont: NSFont?
+
+    func setBodyFont(_ font: NSFont) {
+        pendingBodyFont = font
+        guard !hasMarkedText() else { return }
+        pendingBodyFont = nil
+        guard bodyFont != font else { return }
+        let selection = selectedRanges
+        let origin = enclosingScrollView?.contentView.bounds.origin
+        bodyFont = font
+        refreshChecklistAppearance()
+        selectedRanges = selection
+        if let scroll = enclosingScrollView, let origin {
+            if let textContainer { layoutManager?.ensureLayout(for: textContainer) }
+            scroll.contentView.scroll(to: origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
 
     public override init(frame frameRect: NSRect, textContainer container: NSTextContainer? = nil) {
         // Checkbox drawing and source-index glyph hiding share one TextKit 1 layout manager.
@@ -205,12 +229,14 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
     override public func didChangeText() {
         super.didChangeText()
         if !hasMarkedText() {
+            if let pendingBodyFont { setBodyFont(pendingBodyFont) }
             refreshChecklistAppearance()
         }
     }
 
     override public func unmarkText() {
         super.unmarkText()
+        if let pendingBodyFont { setBodyFont(pendingBodyFont) }
         refreshChecklistAppearance()
     }
 
@@ -291,7 +317,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         defer { applyingPresentation = false }
         cachedTasks = ChecklistEngine.tasks(in: string)
         let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
-        let base: [NSAttributedString.Key: Any] = [.font: Theme.bodyFont, .foregroundColor: NSColor.black.withAlphaComponent(0.84), .paragraphStyle: paragraph]
+        let base: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: NSColor.black.withAlphaComponent(0.84), .paragraphStyle: paragraph]
         let presentation = MarkdownPresentation(source: string, baseAttributes: base)
         hiddenSyntax = presentation.hidden
         listItems = presentation.listItems
@@ -313,10 +339,10 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
         for item in listItems where !item.isChecklist {
             let glyph = layoutManager.glyphIndexForCharacter(at: min(item.contentRange.location, string.utf16.count - 1))
             let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let x = textContainerOrigin.x + line.minX + (item.indentation as NSString).size(withAttributes: [.font: Theme.bodyFont]).width
+            let x = textContainerOrigin.x + line.minX + (item.indentation as NSString).size(withAttributes: [.font: bodyFont]).width
             let y = textContainerOrigin.y + line.midY
             if Int(item.marker.dropLast()) != nil {
-                let attributes: [NSAttributedString.Key: Any] = [.font: Theme.roundedFont(size: 13), .foregroundColor: NSColor.black.withAlphaComponent(0.7)]
+                let attributes: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: NSColor.black.withAlphaComponent(0.7)]
                 let label = item.marker as NSString
                 let size = label.size(withAttributes: attributes)
                 label.draw(at: NSPoint(x: x - size.width - 7, y: y - size.height / 2), withAttributes: attributes)
@@ -371,7 +397,7 @@ public final class ChecklistTextView: NSTextView, @preconcurrency NSLayoutManage
             let glyphIndex = glyphRange.location
             let rect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let lineRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-            let checkbox = NSRect(x: lineRect.minX + (task.indentation as NSString).size(withAttributes: [.font: Theme.bodyFont]).width - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
+            let checkbox = NSRect(x: lineRect.minX + (task.indentation as NSString).size(withAttributes: [.font: bodyFont]).width - 22, y: lineRect.minY + max(0, (lineRect.height - 13) / 2), width: 13, height: 13)
             result.append(CheckboxHit(task: task, rect: checkbox))
         }
         return result

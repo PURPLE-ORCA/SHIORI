@@ -261,6 +261,72 @@ final class MilestoneTests: XCTestCase {
         }
     }
 
+    func testGlobalBodyFontsPersistAndUpdateWithoutChangingEditingState() throws {
+        let suite = "tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+        XCTAssertEqual(settings.noteFont, .architectsDaughter)
+        XCTAssertEqual(settings.bodyFont.fontName, "ArchitectsDaughter-Regular")
+        XCTAssertEqual(settings.noteFontSize, 16)
+        settings.noteFont = .indieFlower; settings.noteFontSize = 22
+        XCTAssertEqual(settings.bodyFont.fontName, "IndieFlower-Regular")
+        let restored = SettingsStore(defaults: defaults)
+        XCTAssertEqual(restored.noteFont, .indieFlower)
+        XCTAssertEqual(restored.bodyFont.pointSize, 22)
+
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 1200))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 160))
+        let window = NSWindow(contentRect: scroll.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        scroll.documentView = editor; window.contentView = scroll
+        defer { window.orderOut(nil) }
+        editor.isRichText = false; editor.allowsUndo = true
+        editor.string = String(repeating: "Café 😀 مرحباً\n", count: 30)
+        editor.setSelectedRange(NSRange(location: 0, length: 4))
+        editor.formatText(.bold)
+        let source = editor.string, selection = editor.selectedRanges
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        let origin = scroll.contentView.bounds.origin
+        editor.setBodyFont(settings.bodyFont)
+        XCTAssertEqual(editor.string, source)
+        let bold = try XCTUnwrap(editor.textStorage?.attribute(.font, at: 2, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(NSFontManager.shared.traits(of: bold).contains(.boldFontMask))
+        XCTAssertEqual(editor.selectedRanges, selection)
+        XCTAssertEqual(scroll.contentView.bounds.origin, origin)
+        XCTAssertEqual(editor.typingAttributes[.font] as? NSFont, settings.bodyFont)
+        editor.undoManager?.undo()
+        XCTAssertFalse(editor.string.hasPrefix("**"))
+        editor.undoManager?.redo()
+        XCTAssertEqual(editor.string, source)
+        settings.noteFont = .system
+        XCTAssertEqual(settings.bodyFont, NSFont.systemFont(ofSize: 22))
+    }
+
+    func testFontPreferenceRecoveryAndIMECompositionDefersAppearance() {
+        let suite = "tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("Unknown font", forKey: "noteFont")
+        defaults.set(100, forKey: "noteFontSize")
+        let settings = SettingsStore(defaults: defaults)
+        XCTAssertEqual(settings.noteFont, .architectsDaughter)
+        XCTAssertEqual(settings.noteFontSize, 24)
+        settings.noteFontSize = 2
+        XCTAssertEqual(settings.noteFontSize, 14)
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let oldFont = editor.bodyFont
+        editor.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 0))
+        let marked = editor.markedRange(), selection = editor.selectedRange(), source = editor.string
+        editor.setBodyFont(settings.bodyFont)
+        XCTAssertEqual(editor.bodyFont, oldFont)
+        XCTAssertEqual(editor.markedRange(), marked)
+        XCTAssertEqual(editor.selectedRange(), selection)
+        XCTAssertEqual(editor.string, source)
+        editor.unmarkText()
+        XCTAssertEqual(editor.bodyFont, settings.bodyFont)
+        XCTAssertEqual(editor.string, source)
+    }
+
     func testValidFramesRemainUnchanged() {
         let screens = [NSRect(x: -1920, y: -200, width: 1920, height: 1080), NSRect(x: 0, y: 0, width: 1440, height: 900)]
         let frame = NSRect(x: -1000, y: 100, width: 360, height: 400)

@@ -1,0 +1,4 @@
+Unmodified font files and SIL Open Font License notices from Google Fonts:
+https://github.com/google/fonts/tree/main/ofl/architectsdaughter
+https://github.com/google/fonts/tree/main/ofl/indieflower
+Retrieved 2026-09-22. License notices are bundled alongside each font.

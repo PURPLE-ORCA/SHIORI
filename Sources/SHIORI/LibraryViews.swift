@@ -17,6 +17,12 @@ struct SettingsView: View {
                 }
                 if let error = login.error { Text(error).font(.caption).foregroundStyle(.red) }
             }
+            Section("Typography") {
+                Picker("Note Font", selection: $settings.noteFont) {
+                    ForEach(NoteBodyFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Stepper("Note Font Size: \(Int(settings.noteFontSize)) pt", value: $settings.noteFontSize, in: 14...24)
+            }
             Section("Edge") {
                 Picker("Screen edge", selection: $settings.edge) { Text("Left").tag("left"); Text("Right").tag("right") }
                 Button("Reset Edge and Window Positions", action: reset)

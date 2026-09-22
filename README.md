@@ -37,6 +37,8 @@ The editor's **Aa** popover inserts bold, italic, strikethrough, inline code, li
 
 **Delete Note** is in the editor's compact actions menu. It flushes the latest draft, soft-deletes the row, closes the window and offers a five-second, non-key Undo toast. Undo preserves content, color, order and pin metadata. Deleted records remain in SQLite and stay absent from normal queries; there is no purge or trash UI.
 
+Settings → Typography selects one global note-body font: Architects Daughter (default), Indie Flower or System, at 14–24 pt (default 16). Fonts and licenses are bundled; open editors update in place, with changes deferred until active IME composition finishes. Other interface text keeps its system font.
+
 Settings includes Launch at Login through [SMAppService.mainApp](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp). It reflects OS registration status and reports failures or required approval. The app does not modify login items during startup or tests.
 
 ## Data and safety

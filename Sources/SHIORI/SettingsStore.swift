@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+enum NoteBodyFont: String, CaseIterable {
+    case architectsDaughter = "Architects Daughter", indieFlower = "Indie Flower", system = "System"
+
+    @MainActor func resolve(size: Double) -> NSFont {
+        let name = self == .architectsDaughter ? "ArchitectsDaughter-Regular" : "IndieFlower-Regular"
+        return (self == .system ? nil : NSFont(name: name, size: size)) ?? NSFont.systemFont(ofSize: size)
+    }
+}
+
 @MainActor
 final class SettingsStore: ObservableObject {
     let defaults: UserDefaults
@@ -10,19 +19,36 @@ final class SettingsStore: ObservableObject {
     @Published var closeDelay: Double { didSet { defaults.set(closeDelay, forKey: "closeDelay") } }
     @Published var acrossSpaces: Bool { didSet { defaults.set(acrossSpaces, forKey: "acrossSpaces") } }
     @Published var fullscreen: Bool { didSet { defaults.set(fullscreen, forKey: "fullscreen") } }
+    @Published var noteFont: NoteBodyFont { didSet {
+        defaults.set(noteFont.rawValue, forKey: "noteFont")
+        bodyFont = noteFont.resolve(size: noteFontSize)
+    } }
+    @Published var noteFontSize: Double { didSet {
+        let size = Self.validFontSize(noteFontSize)
+        if noteFontSize != size { noteFontSize = size; return }
+        defaults.set(noteFontSize, forKey: "noteFontSize")
+        bodyFont = noteFont.resolve(size: noteFontSize)
+    } }
+    private(set) var bodyFont: NSFont
+    private static func validFontSize(_ size: Double) -> Double { size.isFinite ? min(24, max(14, size)) : 16 }
     var initialized: Bool {
         get { defaults.bool(forKey: "initialized") }
         set { defaults.set(newValue, forKey: "initialized") }
     }
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["edge": "right", "anchor": 0.5, "openDelay": 0.15, "closeDelay": 0.3, "acrossSpaces": true, "fullscreen": false])
+        defaults.register(defaults: ["edge": "right", "anchor": 0.5, "openDelay": 0.15, "closeDelay": 0.3, "acrossSpaces": true, "fullscreen": false, "noteFont": NoteBodyFont.architectsDaughter.rawValue, "noteFontSize": 16.0])
         edge = defaults.string(forKey: "edge") == "left" ? "left" : "right"
         anchor = min(1, max(0, defaults.double(forKey: "anchor")))
         openDelay = max(0, defaults.double(forKey: "openDelay"))
         closeDelay = max(0, defaults.double(forKey: "closeDelay"))
         acrossSpaces = defaults.bool(forKey: "acrossSpaces")
         fullscreen = defaults.bool(forKey: "fullscreen")
+        let selectedFont = NoteBodyFont(rawValue: defaults.string(forKey: "noteFont") ?? "") ?? .architectsDaughter
+        let selectedSize = Self.validFontSize(defaults.double(forKey: "noteFontSize"))
+        noteFont = selectedFont
+        noteFontSize = selectedSize
+        bodyFont = selectedFont.resolve(size: selectedSize)
     }
     var collectionBehavior: NSWindow.CollectionBehavior {
         var result: NSWindow.CollectionBehavior = [.ignoresCycle]

@@ -14,6 +14,7 @@
 		199E97AE46F345E6A2472983 /* ChecklistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B3D2954DC78608B426185C7 /* ChecklistTests.swift */; };
 		1DC027410277B291D377179F /* MarkdownFormattingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602E1120F8DAD3AE67D8AA9E /* MarkdownFormattingEngine.swift */; };
 		1FF2C69317401653CD55B1CC /* GeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */; };
+		33A5BF6D38F3DEFECB8061D3 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = 3372E3AD72C6BA4BFC6E849A /* Fonts */; };
 		3ACADFDBA4A35D9C4A95569A /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7449D8B8C5AFB09E6F78F769 /* AppCoordinator.swift */; };
 		3EC7FD76F7B2F8A5CAA0F35F /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414E55F50766B9264F89BB9C /* NotesStore.swift */; };
 		78DB85F53876A3C31E92F0E9 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3465CBDA6C1F8574C94199 /* PersistenceTests.swift */; };
@@ -50,6 +51,7 @@
 		2B3178BF15E99E3ED4E41A0D /* LibraryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViews.swift; sourceTree = "<group>"; };
 		2B3D2954DC78608B426185C7 /* ChecklistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistTests.swift; sourceTree = "<group>"; };
 		2E52D8EE3FF85B194E45EC37 /* GeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryTests.swift; sourceTree = "<group>"; };
+		3372E3AD72C6BA4BFC6E849A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
 		414E55F50766B9264F89BB9C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		537C80AD478C3743725FF672 /* AutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutosaveTests.swift; sourceTree = "<group>"; };
 		54059C9427E63965DF09A38C /* ChecklistEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistEngine.swift; sourceTree = "<group>"; };
@@ -118,6 +120,7 @@
 		2F1B0778CAF6EB26570ED830 = {
 			isa = PBXGroup;
 			children = (
+				3372E3AD72C6BA4BFC6E849A /* Fonts */,
 				34A53952AC2E17B4EDBC7B93 /* SHIORI */,
 				180AC0A92A0DF6DBFDC47216 /* SHIORITests */,
 				15272FF45448E22E3709362C /* Products */,
@@ -155,6 +158,7 @@
 			buildConfigurationList = 55AB17394295FEF2B15E47F4 /* Build configuration list for PBXNativeTarget "SHIORI" */;
 			buildPhases = (
 				18584BBBE77AA5CF3B8247E4 /* Sources */,
+				2DB20317ECCB74B858BE84DD /* Resources */,
 				3763CD0E7F72D1C5C194BDFD /* Frameworks */,
 			);
 			buildRules = (
@@ -233,6 +237,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2DB20317ECCB74B858BE84DD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33A5BF6D38F3DEFECB8061D3 /* Fonts in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		18584BBBE77AA5CF3B8247E4 /* Sources */ = {
@@ -323,6 +338,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
 				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -469,6 +485,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SHIORI;
 				INFOPLIST_KEY_LSMultipleInstancesProhibited = YES;
 				INFOPLIST_KEY_LSUIElement = YES;

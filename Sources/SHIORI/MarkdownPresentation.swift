@@ -24,13 +24,16 @@ struct MarkdownPresentation {
                 var font = baseFont
                 for component in run.presentationIntent?.components ?? [] {
                     switch component.kind {
-                    case .header(let level): font = Theme.roundedFont(size: level == 1 ? 24 : 20, weight: .semibold)
+                    case .header(let level): font = NSFontManager.shared.convert(baseFont, toSize: baseFont.pointSize * (level == 1 ? 1.5 : 1.25))
                     case .codeBlock: font = .monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
                     default: break
                     }
                 }
                 if inline.contains(.code) { font = .monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular) }
-                if inline.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+                if inline.contains(.stronglyEmphasized) {
+                    let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                    font = NSFontManager.shared.traits(of: bold).contains(.boldFontMask) ? bold : .systemFont(ofSize: font.pointSize, weight: .bold)
+                }
                 if inline.contains(.emphasized) {
                     // The rounded system face has no italic variant; use its native italic sibling.
                     let italicBase = NSFont.systemFont(ofSize: font.pointSize, weight: inline.contains(.stronglyEmphasized) ? .bold : .regular)

@@ -61,7 +61,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
         window.delegate = self
         window.requestClose = { [weak self] in self?.close(id) }
-        window.contentView = NSHostingView(rootView: StickyEditorView(store: store, id: id, focusTitle: focusTitle,
+        window.contentView = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
         windows[id] = window
         if activate { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) } else { window.orderFrontRegardless() }
@@ -175,6 +175,7 @@ struct HeaderDragArea: NSViewRepresentable {
 }
 
 struct StickyEditorView: View {
+    @ObservedObject var settings: SettingsStore
     @ObservedObject var store: NotesStore
     let id: String
     let focusTitle: Bool
@@ -214,7 +215,7 @@ struct StickyEditorView: View {
                 .padding(.horizontal, 22)
                 .padding(.top, 12)
                 .overlay(alignment: .top) { HeaderDragArea().frame(height: 12).accessibilityLabel("Move note") }
-                NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus)
+                NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus, bodyFont: settings.bodyFont)
                     .connecting { editor = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 9) {
