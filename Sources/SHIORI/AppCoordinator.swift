@@ -129,7 +129,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func quickSearch() {
         guard let store else { return }
         if searchController == nil {
-            searchController = QuickSearchController(store: store, open: { [weak self] id in self?.windows?.open(id, near: nil) }, create: { [weak self] in self?.newNote() })
+            searchController = QuickSearchController(store: store, settings: settings, open: { [weak self] id in self?.windows?.open(id, near: nil) }, create: { [weak self] in self?.newNote() })
         }
         searchController?.show()
     }

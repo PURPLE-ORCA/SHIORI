@@ -4,11 +4,12 @@ import SwiftUI
 @MainActor
 final class QuickSearchController: NSObject, NSWindowDelegate {
     private var panel: SearchPanel?
+    let settings: SettingsStore
     let store: NotesStore
     let open: (String) -> Void
     let create: () -> Void
-    init(store: NotesStore, open: @escaping (String) -> Void, create: @escaping () -> Void) {
-        self.store = store; self.open = open; self.create = create
+    init(store: NotesStore, settings: SettingsStore, open: @escaping (String) -> Void, create: @escaping () -> Void) {
+        self.store = store; self.settings = settings; self.open = open; self.create = create
     }
     func show() {
         dismiss()
@@ -17,6 +18,7 @@ final class QuickSearchController: NSObject, NSWindowDelegate {
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.level = .floating; panel.hidesOnDeactivate = true
         panel.delegate = self
+        panel.collectionBehavior = settings.collectionBehavior
         panel.contentView = NSHostingView(rootView: QuickSearchView(store: store, open: { [weak self] id in
             self?.dismiss(); self?.open(id)
         }, create: { [weak self] in self?.dismiss(); self?.create() }, dismiss: { [weak self] in self?.dismiss() }, resize: { [weak panel] count in

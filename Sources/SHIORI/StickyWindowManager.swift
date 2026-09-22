@@ -110,7 +110,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             do {
                 try await store.delete(id)
                 await dismiss(id)
-                deleteUndo.show(on: screen, undo: { [weak self] in
+                deleteUndo.show(on: screen, behavior: settings.collectionBehavior, undo: { [weak self] in
                     guard let self else { return }
                     try await self.store.undoDelete(id)
                     if wasVisible, self.store.note(id: id)?.pinned == true {
