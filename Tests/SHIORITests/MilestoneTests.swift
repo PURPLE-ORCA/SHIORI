@@ -198,7 +198,7 @@ final class MilestoneTests: XCTestCase {
         let frame = window.frame
         let content = try XCTUnwrap(window.contentView)
         content.layoutSubtreeIfNeeded()
-        let headerY: CGFloat = content.isFlipped ? 54 : content.bounds.height - 54
+        let headerY: CGFloat = content.isFlipped ? 6 : content.bounds.height - 6
         let headerPoint = content.convert(NSPoint(x: 30, y: headerY), to: content.superview)
         XCTAssertTrue(content.hitTest(headerPoint) is HeaderDragArea.DragView, "Header hit: \(String(describing: content.hitTest(headerPoint)))")
         let preferences = defaults.dictionaryRepresentation()
@@ -212,6 +212,53 @@ final class MilestoneTests: XCTestCase {
         let saved = try await repository.loadActiveNotes()
         XCTAssertTrue(saved.first!.pinned)
         window.orderOut(nil)
+    }
+
+    func testEdgeTabsCoverConnectedDisplaysAndReuseEditor() async throws {
+        let screens = NSScreen.screens
+        guard screens.count >= 2 else { throw XCTSkip("Requires two connected displays") }
+        let (root, repository) = try await database()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+        let store = NotesStore(repository: repository)
+        let note = try await store.create()
+        try await store.setPinned(note.id, pinned: true)
+        let manager = StickyWindowManager(store: store, settings: settings) { _ in XCTFail("Unexpected error") }
+        let coordinator = AppCoordinator(settings: settings)
+        coordinator.store = store; coordinator.windows = manager
+        defer {
+            coordinator.edgeTabs.values.forEach { $0.stop() }
+            manager.windows.values.forEach { $0.orderOut(nil) }
+        }
+        coordinator.synchronizeEdgeTabs(screens: screens)
+        XCTAssertEqual(coordinator.edgeTabs.count, screens.count)
+        let firstID = try XCTUnwrap(EdgeDockController.displayID(for: screens[0]))
+        let first = try XCTUnwrap(coordinator.edgeTabs[firstID])
+        coordinator.synchronizeEdgeTabs(screens: [screens[0]])
+        XCTAssertEqual(coordinator.edgeTabs.count, 1)
+        coordinator.synchronizeEdgeTabs(screens: screens)
+        XCTAssertTrue(coordinator.edgeTabs[firstID] === first)
+        XCTAssertEqual(coordinator.edgeTabs.count, screens.count)
+        manager.restorePinned()
+        let window = try XCTUnwrap(manager.windows[note.id])
+        XCTAssertTrue(window.collectionBehavior.contains(.canJoinAllSpaces))
+        for screen in screens.reversed() {
+            let id = try XCTUnwrap(EdgeDockController.displayID(for: screen))
+            let frame = try XCTUnwrap(coordinator.edgeTabs[id]?.cardScreenFrame(for: note.id))
+            XCTAssertTrue(screen.frame.intersects(frame))
+            manager.open(note.id, near: nil, from: frame)
+            for _ in 0..<50 {
+                try await Task.sleep(for: .milliseconds(10))
+                if window.screen == screen { break }
+            }
+            XCTAssertEqual(window.screen, screen)
+            XCTAssertTrue(manager.windows[note.id] === window)
+            XCTAssertEqual(manager.windows.count, 1)
+            XCTAssertTrue(store.note(id: note.id)!.pinned)
+        }
     }
 
     func testValidFramesRemainUnchanged() {

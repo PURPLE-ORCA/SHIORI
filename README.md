@@ -19,7 +19,7 @@ The local app is ad-hoc signed; no paid developer account is needed. It is not a
 
 ## Use
 
-At rest, notes appear as thin colored stripes at the left or right screen edge. Hover to reveal the existing cards and previews, click to edit, use plus to create, drag the resting stripes or expanded grip to move the stack, and drag expanded tabs to reorder. Drag an open note from its timestamp row or top margin. There is no dock, library, archive browser or All Notes window.
+At rest, notes appear as thin colored stripes at the left or right screen edge. Hover to reveal the existing cards and previews, click to edit, use plus to create, drag the resting stripes or expanded grip to move the stack, and drag expanded tabs to reorder. Drag an open note from its top margin or the free space in its footer. Edge tabs are available on every connected display; opening a note from another display moves its existing editor there. There is no dock, library, archive browser or All Notes window.
 
 Pin a note to keep an independent floating window. Closing returns it to the edge tabs. Only one unpinned editor is open at a time. Hide/Show Floating Notes changes session visibility without unpinning or moving notes; edge tabs remain visible. Selecting a hidden pinned note explicitly reveals only that note.
 
@@ -33,7 +33,7 @@ Global shortcuts work while another app is active, without Accessibility, Input 
 
 Quick Search searches current active titles and bodies, including unsaved drafts, with case/diacritic-insensitive Unicode matching. An empty query shows edge order. Up/Down selects, Return opens, Escape dismisses, and Cmd+N creates a note. Existing editor windows are reused.
 
-The editor's **Aa** popover inserts bold, italic, strikethrough, inline code, links, H1/H2, bullets and checklists. Cmd+B, Cmd+I and Cmd+K operate on the current selection. Cmd+K inside a Markdown link selects its destination for editing. Markdown renders directly in the native editor, including interactive checkboxes, while the stored body remains plain Markdown. Native undo/redo remains available. Typing `- ` or `* ` retains the existing automatic checklist behavior; the Bullet List command inserts ordinary bullets, which Return continues separately from checklists.
+The editor's **Aa** popover inserts bold, italic, strikethrough, inline code, links, H1/H2, bullets and checklists. Cmd+B, Cmd+I and Cmd+K operate on the current selection. Cmd+K inside a Markdown link selects its destination for editing. Markdown renders directly in the native editor, including interactive checkboxes, while the stored body remains plain Markdown. Native undo/redo remains available. Return continues bullets, numbered lists and checklists; Return on an empty item ends the list (or outdents a nested item). Tab and Shift+Tab indent and outdent list items. Backspace at the start of an item removes its marker. Ordinary bullets stay separate from checklists.
 
 **Delete Note** is in the editor's compact actions menu. It flushes the latest draft, soft-deletes the row, closes the window and offers a five-second, non-key Undo toast. Undo preserves content, color, order and pin metadata. Deleted records remain in SQLite and stay absent from normal queries; there is no purge or trash UI.
 

@@ -22,7 +22,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let dataFolder: URL
     var store: NotesStore?
     var windows: StickyWindowManager?
-    var dock: EdgeDockController?
+    var edgeTabs: [CGDirectDisplayID: EdgeDockController] = [:]
+    var dock: EdgeDockController? { edgeTabs.values.first }
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
     var subscriptions = Set<AnyCancellable>()
@@ -30,10 +31,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var shortcuts: GlobalShortcutCoordinator?
     var terminating = false
 
-    override init() {
+    init(settings suppliedSettings: SettingsStore? = nil) {
         let override = ProcessInfo.processInfo.environment["SHIORI_DATA_DIR"]
         dataFolder = override.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("app.shiori.desktop", isDirectory: true)
-        if let suite = ProcessInfo.processInfo.environment["SHIORI_DEFAULTS_SUITE"], let defaults = UserDefaults(suiteName: suite) { settings = SettingsStore(defaults: defaults) }
+        if let suppliedSettings { settings = suppliedSettings }
+        else if let suite = ProcessInfo.processInfo.environment["SHIORI_DEFAULTS_SUITE"], let defaults = UserDefaults(suiteName: suite) { settings = SettingsStore(defaults: defaults) }
         else { settings = SettingsStore() }
         super.init()
     }
@@ -50,7 +52,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { await load() }
         settings.objectWillChange.sink { [weak self] in
             Task { @MainActor in
-                self?.dock?.refreshLayout()
+                self?.edgeTabs.values.forEach { $0.refreshLayout() }
                 self?.windows?.refreshVisibility()
             }
         }.store(in: &subscriptions)
@@ -99,8 +101,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             store = loaded
             let manager = StickyWindowManager(store: loaded, settings: settings, reportError: { [weak self] error in self?.present(error) })
             windows = manager
-            dock = EdgeDockController(store: loaded, settings: settings, open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) }, create: { [weak self] in self?.newNote() })
-            manager.deckFrame = { [weak dock] id in dock?.cardScreenFrame(for: id) }
+            synchronizeEdgeTabs()
+            manager.deckFrame = { [weak self] id in self?.dock?.cardScreenFrame(for: id) }
             manager.restorePinned()
             do { _ = try await repository.backupIfNeeded(in: dataFolder.appendingPathComponent("Backups")) }
             catch { present(error, title: "The backup could not be created") }
@@ -116,13 +118,33 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             else if response == .alertSecondButtonReturn { revealData() }
         }
     }
+    func synchronizeEdgeTabs(screens: [NSScreen] = NSScreen.screens) {
+        guard let store, let windows else { return }
+        let ids = Set(screens.compactMap { EdgeDockController.displayID(for: $0) })
+        for id in Array(edgeTabs.keys) where !ids.contains(id) { edgeTabs.removeValue(forKey: id)?.stop() }
+        for screen in screens {
+            guard let id = EdgeDockController.displayID(for: screen) else { continue }
+            if edgeTabs[id] == nil {
+                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id,
+                    open: { [weak windows] noteID, frame in windows?.open(noteID, near: nil, from: frame) },
+                    create: { [weak self] in self?.createNote(on: screen) })
+            }
+            edgeTabs[id]?.refreshLayout()
+        }
+    }
+
     @objc func newNote() {
+        createNote(on: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main)
+    }
+
+    private func createNote(on screen: NSScreen?) {
+        let point = screen.map { NSPoint(x: $0.visibleFrame.midX + Theme.editorSize.width / 2, y: $0.visibleFrame.midY) }
         guard let store else { return }
         Task {
             do {
                 try await windows?.closeTransient()
                 let note = try await store.create()
-                windows?.open(note.id, near: nil, focusTitle: true)
+                windows?.open(note.id, near: point, focusTitle: true)
             } catch { present(error) }
         }
     }
@@ -137,20 +159,21 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.items.first { $0.action == #selector(toggleFloating) }?.title = windows?.hidden == true ? "Show Floating Notes" : "Hide Floating Notes"
     }
-    @objc func displaysChanged() { dock?.displayConfigurationChanged(); windows?.clampWindows(); windows?.refreshVisibility() }
+    @objc func displaysChanged() { synchronizeEdgeTabs(); windows?.clampWindows(); windows?.refreshVisibility() }
     @objc func willSleep() {
         windows?.saveAllGeometry()
         Task { do { try await store?.flush() } catch { Self.logger.error("Sleep flush failed; draft retained") } }
     }
     func applicationWillTerminate(_ notification: Notification) {
-        dock?.stop()
+        edgeTabs.values.forEach { $0.stop() }
+        edgeTabs.removeAll()
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
     @objc func showSettings() {
         if settingsWindow == nil {
             settingsWindow = standardWindow(title: "SHIORI Settings", size: NSSize(width: 460, height: 560), content: SettingsView(settings: settings, shortcuts: shortcuts, reset: { [weak self] in
-                self?.settings.resetPositions(); self?.dock?.refreshLayout(); self?.windows?.resetPositions()
+                self?.settings.resetPositions(); self?.edgeTabs.values.forEach { $0.refreshLayout() }; self?.windows?.resetPositions()
             }))
         }
         NSApp.activate(ignoringOtherApps: true); settingsWindow?.makeKeyAndOrderFront(nil)

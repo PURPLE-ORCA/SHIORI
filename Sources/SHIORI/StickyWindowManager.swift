@@ -40,12 +40,21 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         }
     }
     private func show(_ id: String, near point: NSPoint?, focusTitle: Bool, activate: Bool = true, from cardFrame: NSRect? = nil) {
+        let targetScreen = cardFrame.flatMap { frame in
+            NSScreen.screens.max { lhs, rhs in
+                let left = lhs.visibleFrame.intersection(frame), right = rhs.visibleFrame.intersection(frame)
+                return (left.isNull ? 0 : left.width * left.height) < (right.isNull ? 0 : right.width * right.height)
+            }
+        }
         if let existing = windows[id] {
+            if let targetScreen, existing.screen != targetScreen {
+                existing.setFrame(WindowGeometry.clamp(existing.frame, to: [targetScreen.visibleFrame]), display: true)
+            }
             NSApp.activate(ignoringOtherApps: true); existing.makeKeyAndOrderFront(nil); return
         }
         let defaultFrame = NSRect(origin: point.map { NSPoint(x: $0.x - Theme.editorSize.width, y: $0.y - Theme.editorSize.height / 2) } ?? NSPoint(x: (NSScreen.main?.visibleFrame.midX ?? 500) - 180, y: (NSScreen.main?.visibleFrame.midY ?? 500) - 200), size: Theme.editorSize)
         let sourceFrame = cardFrame.map { NSRect(x: $0.minX + (settings.edge == "left" ? 24 : -24), y: $0.maxY - Theme.editorSize.height, width: Theme.editorSize.width, height: Theme.editorSize.height) }
-        let frame = WindowGeometry.clamp(settings.frame(id: id) ?? sourceFrame ?? defaultFrame, to: NSScreen.screens.map(\.visibleFrame))
+        let frame = WindowGeometry.clamp(settings.frame(id: id) ?? sourceFrame ?? defaultFrame, to: targetScreen.map { [$0.visibleFrame] } ?? NSScreen.screens.map(\.visibleFrame))
         let window = StickyPanel(contentRect: frame, styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
         window.minSize = NSSize(width: 300, height: 300)
         window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = true
@@ -240,19 +249,8 @@ struct StickyEditorView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 22)
-                .padding(.top, 20)
-                .overlay(alignment: .top) { HeaderDragArea().frame(height: 18) }
-                HStack(spacing: 8) {
-                    Text(Date(timeIntervalSince1970: note.updatedAt), format: .dateTime.month(.abbreviated).day().hour().minute())
-                        .font(.system(size: 12, weight: .regular, design: .rounded))
-                        .foregroundStyle(.black.opacity(0.48))
-                        .allowsHitTesting(false)
-                    Spacer(minLength: 0)
-                }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 3)
-                    .padding(.bottom, 8)
-                    .overlay(HeaderDragArea().accessibilityLabel("Move note"))
+                .padding(.top, 12)
+                .overlay(alignment: .top) { HeaderDragArea().frame(height: 12).accessibilityLabel("Move note") }
                 NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus)
                     .connecting { editor = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -263,7 +261,14 @@ struct StickyEditorView: View {
                                 .overlay(Circle().stroke(.black.opacity(note.colorIndex == index ? 0.65 : 0.15), lineWidth: note.colorIndex == index ? 2 : 1))
                         }.buttonStyle(.plain).accessibilityLabel(Theme.names[index])
                     }
-                    Spacer()
+                    HeaderDragArea().frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
+                        .accessibilityLabel("Move note")
+                    if store.hasError(id) {
+                        Button("Retry save", systemImage: "exclamationmark.circle") {
+                            Task { do { try await store.flush(id) } catch { AppCoordinator.logger.error("Retry failed") } }
+                        }.labelStyle(.iconOnly).buttonStyle(.plain)
+                            .help(store.saveError(id) ?? "Couldn’t save this note. Click to retry.")
+                    }
                     Button("Aa") { formatting.toggle() }
                         .buttonStyle(.plain).accessibilityLabel("Format Markdown")
                         .popover(isPresented: $formatting) {
@@ -276,19 +281,10 @@ struct StickyEditorView: View {
                                 }
                             }.padding(8)
                         }
-                    Menu {
-                        Button("Delete Note", role: .destructive, action: delete)
-                    } label: { Image(systemName: "ellipsis").frame(width: 22, height: 22) }
-                    .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Note actions")
-                }.padding(.horizontal, 20).padding(.top, 9)
-                HStack {
-                    Text(store.saveStatus(id)).font(.system(size: 10, design: .rounded)).foregroundStyle(.black.opacity(0.52))
-                    Spacer()
-                    if store.hasError(id) {
-                        Button("Retry") { Task { do { try await store.flush(id) } catch { AppCoordinator.logger.error("Retry failed (code \((error as NSError).code))") } } }
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                    }
-                }.padding(.horizontal, 20).padding(.top, 5).padding(.bottom, 9)
+                    Button(action: delete) {
+                        Image(systemName: "trash").font(.system(size: 13)).frame(width: 24, height: 24)
+                    }.buttonStyle(.plain).accessibilityLabel("Delete note").help("Delete note")
+                }.padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 10)
             }
             .foregroundStyle(.black.opacity(0.85)).background(Theme.color(note.colorIndex))
             .clipShape(RoundedRectangle(cornerRadius: Theme.corner))

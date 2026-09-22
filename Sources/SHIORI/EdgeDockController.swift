@@ -69,6 +69,7 @@ final class EdgeDockController: NSObject {
 
     private var panel: DockPanel?
     private var dockView: DockView?
+    private let fixedDisplayID: CGDirectDisplayID?
     private var primaryDisplayID: CGDirectDisplayID?
     private var pendingAnchor: Double?
     private var phaseMachine = DockStateMachine()
@@ -84,6 +85,7 @@ final class EdgeDockController: NSObject {
     public init(
         store: NotesStore,
         settings: SettingsStore,
+        displayID: CGDirectDisplayID? = nil,
         open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
         pointerLocation: @escaping () -> NSPoint = { NSEvent.mouseLocation },
@@ -98,6 +100,7 @@ final class EdgeDockController: NSObject {
     ) {
         self.store = store
         self.settings = settings
+        self.fixedDisplayID = displayID
         self.openNote = open
         self.createNote = create
         self.pointerLocation = pointerLocation
@@ -135,7 +138,7 @@ final class EdgeDockController: NSObject {
 
     private func refreshLayout(animated: Bool) {
         guard let panel, let dockView else { return }
-        guard let screen = retainedScreen() else { return }
+        guard let screen = retainedScreen() else { panel.orderOut(nil); return }
         let notes = store.active
         dockView.notes = notes
         dockView.edge = settings.edge == "left" ? .left : .right
@@ -258,6 +261,7 @@ final class EdgeDockController: NSObject {
     }
 
     private func retainedScreen() -> NSScreen? {
+        if let id = fixedDisplayID { return NSScreen.screens.first { Self.displayID(for: $0) == id } }
         if let id = primaryDisplayID,
            let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == id }) {
             return screen
@@ -384,15 +388,18 @@ final class EdgeDockController: NSObject {
         dockView?.cancelDeckAnimation()
     }
 
-    private static func displayID(for screen: NSScreen?) -> CGDirectDisplayID? {
+    static func displayID(for screen: NSScreen?) -> CGDirectDisplayID? {
         guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
         return CGDirectDisplayID(number.uint32Value)
     }
 
     fileprivate func moveAnchor(to screenPoint: NSPoint) {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? retainedScreen() else { return }
-        primaryDisplayID = Self.displayID(for: screen)
-        settings.defaults.set(primaryDisplayID, forKey: "edgeDisplayID")
+        let screen = fixedDisplayID == nil ? NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? retainedScreen() : retainedScreen()
+        guard let screen else { return }
+        if fixedDisplayID == nil {
+            primaryDisplayID = Self.displayID(for: screen)
+            settings.defaults.set(primaryDisplayID, forKey: "edgeDisplayID")
+        }
         let visibleFrame = screen.visibleFrame
         pendingAnchor = min(1, max(0, (screenPoint.y - visibleFrame.minY) / visibleFrame.height))
         refreshLayout(animated: false)
