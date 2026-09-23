@@ -86,11 +86,11 @@ final class MilestoneTests: XCTestCase {
         let deleted = try await queue.read { db in try Note.fetchOne(db, key: "deleted") }
         XCTAssertEqual(deleted?.deletedAt, 6)
         XCTAssertEqual(deleted?.attachedAppBundleIdentifier, "test.deleted")
-        try await repository.updateColor(id: "legacy", colorIndex: 9)
+        try await repository.updateColor(id: "legacy", colorIndex: 19)
         let recolored = try await repository.loadActiveNotes()
-        XCTAssertEqual(recolored.first?.colorIndex, 9)
+        XCTAssertEqual(recolored.first?.colorIndex, 19)
         try await queue.write { db in
-            XCTAssertThrowsError(try db.execute(sql: "UPDATE note SET colorIndex = 10 WHERE id = 'legacy'"))
+            XCTAssertThrowsError(try db.execute(sql: "UPDATE note SET colorIndex = 20 WHERE id = 'legacy'"))
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_note_%'"), 5)
         }
     }

@@ -5,7 +5,7 @@ import GRDB
 /// database remains portable and easy to inspect when debugging.
 public struct Note: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "note"
-    public static let colorCount = 10
+    public static let colorCount = 20
 
     public let id: String
     public var title: String
@@ -128,32 +128,34 @@ public final class NoteRepository: @unchecked Sendable {
         migrator.registerMigration("003_app_attachment") { db in
             try db.execute(sql: "ALTER TABLE note ADD COLUMN attachedAppBundleIdentifier TEXT")
         }
-        migrator.registerMigration("004_ten_note_colors") { db in
-            try db.execute(sql: """
-                CREATE TABLE note_expanded (
-                    id TEXT PRIMARY KEY NOT NULL,
-                    title TEXT NOT NULL DEFAULT '',
-                    body TEXT NOT NULL DEFAULT '',
-                    colorIndex INTEGER NOT NULL DEFAULT 0 CHECK (colorIndex BETWEEN 0 AND 9),
-                    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
-                    createdAt REAL NOT NULL,
-                    updatedAt REAL NOT NULL,
-                    sortIndex REAL NOT NULL DEFAULT 0,
-                    archivedAt REAL,
-                    doneAt REAL,
-                    deletedAt REAL,
-                    attachedAppBundleIdentifier TEXT
-                );
-                INSERT INTO note_expanded SELECT id, title, body, colorIndex, pinned, createdAt,
-                    updatedAt, sortIndex, archivedAt, doneAt, deletedAt, attachedAppBundleIdentifier FROM note;
-                DROP TABLE note;
-                ALTER TABLE note_expanded RENAME TO note;
-                CREATE INDEX idx_note_updatedAt ON note(updatedAt);
-                CREATE INDEX idx_note_pinned ON note(pinned);
-                CREATE INDEX idx_note_sortIndex ON note(sortIndex);
-                CREATE INDEX idx_note_archivedAt ON note(archivedAt);
-                CREATE INDEX idx_note_doneAt ON note(doneAt);
-                """)
+        for (identifier, maximumColor) in [("004_ten_note_colors", 9), ("005_twenty_note_colors", 19)] {
+            migrator.registerMigration(identifier) { db in
+                try db.execute(sql: """
+                    CREATE TABLE note_expanded (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL DEFAULT '',
+                        body TEXT NOT NULL DEFAULT '',
+                        colorIndex INTEGER NOT NULL DEFAULT 0 CHECK (colorIndex BETWEEN 0 AND \(maximumColor)),
+                        pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+                        createdAt REAL NOT NULL,
+                        updatedAt REAL NOT NULL,
+                        sortIndex REAL NOT NULL DEFAULT 0,
+                        archivedAt REAL,
+                        doneAt REAL,
+                        deletedAt REAL,
+                        attachedAppBundleIdentifier TEXT
+                    );
+                    INSERT INTO note_expanded SELECT id, title, body, colorIndex, pinned, createdAt,
+                        updatedAt, sortIndex, archivedAt, doneAt, deletedAt, attachedAppBundleIdentifier FROM note;
+                    DROP TABLE note;
+                    ALTER TABLE note_expanded RENAME TO note;
+                    CREATE INDEX idx_note_updatedAt ON note(updatedAt);
+                    CREATE INDEX idx_note_pinned ON note(pinned);
+                    CREATE INDEX idx_note_sortIndex ON note(sortIndex);
+                    CREATE INDEX idx_note_archivedAt ON note(archivedAt);
+                    CREATE INDEX idx_note_doneAt ON note(doneAt);
+                    """)
+            }
         }
         try migrator.migrate(queue)
     }

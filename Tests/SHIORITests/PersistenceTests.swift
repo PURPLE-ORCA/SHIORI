@@ -19,7 +19,7 @@ final class PersistenceTests: XCTestCase {
         let repository = try await NoteRepository.open(at: databaseURL)
         let note = try await repository.create()
         try await repository.updateText(id: note.id, title: "Café", body: "مرحباً")
-        try await repository.updateColor(id: note.id, colorIndex: 9)
+        try await repository.updateColor(id: note.id, colorIndex: 19)
         try await repository.setPinned(id: note.id, pinned: true)
 
         let reopened = try await NoteRepository.open(at: databaseURL)
@@ -27,7 +27,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.count, 1)
         XCTAssertEqual(loaded[0].title, "Café")
         XCTAssertEqual(loaded[0].body, "مرحباً")
-        XCTAssertEqual(loaded[0].colorIndex, 9)
+        XCTAssertEqual(loaded[0].colorIndex, 19)
         XCTAssertTrue(loaded[0].pinned)
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
     }
@@ -165,7 +165,7 @@ final class PersistenceTests: XCTestCase {
         let store = NotesStore(repository: repository, debounce: .seconds(60), maxInterval: .seconds(60))
         try await store.load()
         let note = try await store.create()
-        store.edit(note.id, title: "Immediate", body: "- [ ] Unicode ✅", colorIndex: 9)
+        store.edit(note.id, title: "Immediate", body: "- [ ] Unicode ✅", colorIndex: 19)
         XCTAssertEqual(store.note(id: note.id)?.title, "Immediate")
         XCTAssertEqual(store.saveStatus(note.id), "Saving…")
 
@@ -174,7 +174,7 @@ final class PersistenceTests: XCTestCase {
         let reopened = try await NoteRepository.open(at: databaseURL)
         let saved = try await reopened.loadActiveNotes().first { $0.id == note.id }
         XCTAssertEqual(saved?.title, "Immediate")
-        XCTAssertEqual(saved?.colorIndex, 9)
+        XCTAssertEqual(saved?.colorIndex, 19)
         XCTAssertEqual(saved?.body, "- [ ] Unicode ✅")
     }
 

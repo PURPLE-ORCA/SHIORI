@@ -87,8 +87,8 @@ enum WindowGeometry {
 }
 
 enum Theme {
-    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender", "Rose", "Peach", "Lime", "Aqua", "Ivory"]
-    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE, 0xF5B8CF, 0xFFD0A6, 0xD5E99C, 0xA5E3E5, 0xF1E7D2]
+    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender", "Rose", "Peach", "Lime", "Aqua", "Ivory", "Apricot", "Blush", "Lilac", "Periwinkle", "Ice blue", "Seafoam", "Sage", "Butter", "Sand", "Pearl"]
+    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE, 0xF5B8CF, 0xFFD0A6, 0xD5E99C, 0xA5E3E5, 0xF1E7D2, 0xF7B98B, 0xF7D0D8, 0xE8BFE8, 0xBEC8F5, 0xC6E8F5, 0xBDE8DC, 0xC4D8B5, 0xF4E7A2, 0xDDC8AC, 0xE4E4EB]
     static func nsColor(_ index: Int) -> NSColor {
         let hex = palette[min(palette.count - 1, max(0, index))]
         return NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
