@@ -599,7 +599,6 @@ struct StickyEditorView: View {
                             ForEach(Theme.palette.indices, id: \.self) { index in
                                 Button {
                                     store.edit(id, colorIndex: index)
-                                    choosingColor = false
                                 } label: {
                                     RoundedRectangle(cornerRadius: 9).fill(Theme.color(index))
                                         .frame(width: 30, height: 30)
