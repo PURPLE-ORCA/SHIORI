@@ -80,7 +80,7 @@ public struct NativeEditor: NSViewRepresentable {
         let scrollView = NSScrollView(frame: .zero)
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .automatic
