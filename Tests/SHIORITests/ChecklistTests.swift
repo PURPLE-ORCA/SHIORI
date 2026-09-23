@@ -4,6 +4,20 @@ import AppKit
 
 final class ChecklistTests: XCTestCase {
     @MainActor
+    func testTicketPreviewRendersLinksAndPreservesCodeAndChecklists() {
+        let source = "Make portfolio [ex](https://pro.beui.dev/)\n- [ ] Visit https://example.com\n`[literal](https://example.com)`"
+        let preview = MarkdownPresentation.preview(source, attributes: [.font: Theme.bodyFont])
+        XCTAssertEqual(preview.string, "Make portfolio ex\n- [ ] Visit https://example.com\n[literal](https://example.com)")
+        let label = (preview.string as NSString).range(of: "ex")
+        XCTAssertEqual(preview.attribute(.link, at: label.location, effectiveRange: nil) as? URL, URL(string: "https://pro.beui.dev/"))
+        XCTAssertEqual(preview.attribute(.foregroundColor, at: label.location, effectiveRange: nil) as? NSColor, .linkColor)
+        XCTAssertEqual(preview.attribute(.underlineStyle, at: label.location, effectiveRange: nil) as? Int, NSUnderlineStyle.single.rawValue)
+        let literal = (preview.string as NSString).range(of: "[literal]")
+        XCTAssertNil(preview.attribute(.link, at: literal.location, effectiveRange: nil))
+        XCTAssertEqual(ChecklistEngine.tasks(in: preview.string).count, 1)
+    }
+
+    @MainActor
     func testPastedLinksRemainVisibleAtStartOfNoteAndLine() throws {
         let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
         editor.isRichText = false

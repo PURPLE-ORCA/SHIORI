@@ -7,6 +7,20 @@ struct MarkdownPresentation {
     let hidden: IndexSet
     let listItems: [ChecklistEngine.ListItem]
 
+    static func preview(_ source: String, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        let parsed = try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        let result = parsed.map { NSMutableAttributedString(attributedString: NSAttributedString($0)) }
+            ?? NSMutableAttributedString(string: source)
+        let whole = NSRange(location: 0, length: result.length)
+        result.addAttributes(attributes, range: whole)
+        result.enumerateAttribute(.link, in: whole) { link, range, _ in
+            if link != nil {
+                result.addAttributes([.foregroundColor: NSColor.linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+            }
+        }
+        return result
+    }
+
     init(source: String, baseAttributes: [NSAttributedString.Key: Any]) {
         let display = NSMutableAttributedString(string: source, attributes: baseAttributes)
         let nsSource = source as NSString

@@ -1053,18 +1053,16 @@ private final class DockView: NSView {
     private func bodyPreview(_ note: Note) -> NSAttributedString {
         if let cached = previewCache[note.id], cached.body == note.body { return cached.text }
         let prefix = String(note.body.prefix(1200))
-        let result = NSMutableAttributedString(string: prefix)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         paragraph.minimumLineHeight = 19
         paragraph.maximumLineHeight = 19
-        let whole = NSRange(location: 0, length: result.length)
-        result.addAttributes([
+        let result = NSMutableAttributedString(attributedString: MarkdownPresentation.preview(prefix, attributes: [
             .font: Theme.roundedFont(size: 14),
             .foregroundColor: NSColor.labelColor.withAlphaComponent(0.82),
             .paragraphStyle: paragraph
-        ], range: whole)
-        let tasks = ChecklistEngine.tasks(in: prefix)
+        ]))
+        let tasks = ChecklistEngine.tasks(in: result.string)
         for task in tasks.reversed() {
             if task.isChecked {
                 result.addAttributes([
