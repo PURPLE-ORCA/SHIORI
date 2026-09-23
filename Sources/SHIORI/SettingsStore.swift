@@ -87,8 +87,8 @@ enum WindowGeometry {
 }
 
 enum Theme {
-    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender", "Rose", "Peach", "Lime", "Aqua", "Ivory", "Apricot", "Blush", "Lilac", "Periwinkle", "Ice blue", "Seafoam", "Sage", "Butter", "Sand", "Pearl"]
-    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE, 0xF5B8CF, 0xFFD0A6, 0xD5E99C, 0xA5E3E5, 0xF1E7D2, 0xF7B98B, 0xF7D0D8, 0xE8BFE8, 0xBEC8F5, 0xC6E8F5, 0xBDE8DC, 0xC4D8B5, 0xF4E7A2, 0xDDC8AC, 0xE4E4EB]
+    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender", "Pink", "Orange", "Lime", "Turquoise", "Ivory", "Red", "Brown", "Purple", "Blue", "Cyan", "Green", "Olive", "Gold", "Terracotta", "Gray"]
+    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE, 0xF28CC2, 0xF5AB52, 0xC5DE62, 0x63CEC0, 0xF1E7D2, 0xE97878, 0xBD916F, 0xB88BD9, 0x7DA4E5, 0x6DCDE5, 0x83BB7D, 0xB4B36B, 0xDAB34F, 0xD18C72, 0xB7BDC5]
     static func nsColor(_ index: Int) -> NSColor {
         let hex = palette[min(palette.count - 1, max(0, index))]
         return NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
