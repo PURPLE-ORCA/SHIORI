@@ -43,7 +43,7 @@ final class SettingsStore: ObservableObject {
     }
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["edge": "right", "anchor": 0.5, "openDelay": 0.15, "closeDelay": 0.3, "acrossSpaces": true, "fullscreen": false, "noteFont": NoteBodyFont.architectsDaughter.rawValue, "noteFontSize": 16.0])
+        defaults.register(defaults: ["edge": "right", "anchor": 0.5, "openDelay": 0.15, "closeDelay": 0.1, "acrossSpaces": true, "fullscreen": false, "noteFont": NoteBodyFont.architectsDaughter.rawValue, "noteFontSize": 16.0])
         edge = defaults.string(forKey: "edge") == "left" ? "left" : "right"
         anchor = min(1, max(0, defaults.double(forKey: "anchor")))
         openDelay = max(0, defaults.double(forKey: "openDelay"))
@@ -87,10 +87,10 @@ enum WindowGeometry {
 }
 
 enum Theme {
-    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender"]
-    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE]
+    static let names = ["Yellow", "Coral", "Mint", "Sky blue", "Lavender", "Rose", "Peach", "Lime", "Aqua", "Ivory"]
+    static let palette: [UInt32] = [0xFED866, 0xFE9D7C, 0xA8E5CF, 0xA9D6FE, 0xD7C6FE, 0xF5B8CF, 0xFFD0A6, 0xD5E99C, 0xA5E3E5, 0xF1E7D2]
     static func nsColor(_ index: Int) -> NSColor {
-        let hex = palette[min(4, max(0, index))]
+        let hex = palette[min(palette.count - 1, max(0, index))]
         return NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
     }
     static func color(_ index: Int) -> Color { Color(nsColor: nsColor(index)) }

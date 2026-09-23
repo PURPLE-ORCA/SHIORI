@@ -63,12 +63,14 @@ final class MilestoneTests: XCTestCase {
         try await queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY);
-                INSERT INTO grdb_migrations VALUES ('001_create_notes');
+                INSERT INTO grdb_migrations VALUES ('001_create_notes'), ('002_soft_delete'), ('003_app_attachment');
                 CREATE TABLE note (id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-                    colorIndex INTEGER NOT NULL, pinned INTEGER NOT NULL, createdAt REAL NOT NULL,
-                    updatedAt REAL NOT NULL, sortIndex REAL NOT NULL, archivedAt REAL, doneAt REAL);
-                INSERT INTO note VALUES ('legacy', 'Café', 'مرحبا', 2, 1, 1, 2, 3, NULL, NULL);
-                INSERT INTO note VALUES ('archived', 'Old', 'Preserved', 0, 0, 1, 2, 4, 5, 5);
+                    colorIndex INTEGER NOT NULL CHECK (colorIndex BETWEEN 0 AND 4), pinned INTEGER NOT NULL, createdAt REAL NOT NULL,
+                    updatedAt REAL NOT NULL, sortIndex REAL NOT NULL, archivedAt REAL, doneAt REAL,
+                    deletedAt REAL, attachedAppBundleIdentifier TEXT);
+                INSERT INTO note VALUES ('legacy', 'Café', 'مرحبا', 2, 1, 1, 2, 3, NULL, NULL, NULL, 'test.app');
+                INSERT INTO note VALUES ('archived', 'Old', 'Preserved', 0, 0, 1, 2, 4, 5, 5, NULL, NULL);
+                INSERT INTO note VALUES ('deleted', 'Deleted', 'Retained', 4, 0, 1, 2, 5, NULL, NULL, 6, 'test.deleted');
                 """)
         }
         let repository = try await NoteRepository.open(at: url)
@@ -79,6 +81,18 @@ final class MilestoneTests: XCTestCase {
         let archived = try await repository.loadArchivedNotes()
         XCTAssertEqual(archived.first?.archivedAt, 5)
         XCTAssertEqual(archived.first?.body, "Preserved")
+        XCTAssertEqual(active.first?.attachedAppBundleIdentifier, "test.app")
+        XCTAssertEqual(active.first?.sortIndex, 3)
+        let deleted = try await queue.read { db in try Note.fetchOne(db, key: "deleted") }
+        XCTAssertEqual(deleted?.deletedAt, 6)
+        XCTAssertEqual(deleted?.attachedAppBundleIdentifier, "test.deleted")
+        try await repository.updateColor(id: "legacy", colorIndex: 9)
+        let recolored = try await repository.loadActiveNotes()
+        XCTAssertEqual(recolored.first?.colorIndex, 9)
+        try await queue.write { db in
+            XCTAssertThrowsError(try db.execute(sql: "UPDATE note SET colorIndex = 10 WHERE id = 'legacy'"))
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_note_%'"), 5)
+        }
     }
 
     func testFailedFlushPreventsDeletion() async throws {

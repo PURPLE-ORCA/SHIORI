@@ -556,6 +556,7 @@ struct StickyEditorView: View {
     private final class EditorReference { weak var view: ChecklistTextView? }
     @State private var editor = EditorReference()
     @State private var formatting = false
+    @State private var choosingColor = false
     private var note: Note? { store.notes.first { $0.id == id } }
     var body: some View {
         if let note {
@@ -589,11 +590,30 @@ struct StickyEditorView: View {
                     .connecting { editor.view = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 9) {
-                    ForEach(0..<5) { index in
-                        Button { store.edit(id, colorIndex: index) } label: {
-                            Circle().fill(Theme.color(index)).frame(width: 16, height: 16)
-                                .overlay(Circle().stroke(.black.opacity(note.colorIndex == index ? 0.65 : 0.15), lineWidth: note.colorIndex == index ? 2 : 1))
-                        }.buttonStyle(.plain).accessibilityLabel(Theme.names[index])
+                    Button { choosingColor.toggle() } label: {
+                        Image(systemName: "paintpalette").font(.system(size: 15)).frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain).accessibilityLabel("Note color").help("Note color")
+                    .popover(isPresented: $choosingColor, arrowEdge: .bottom) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 8), count: 5), spacing: 8) {
+                            ForEach(Theme.palette.indices, id: \.self) { index in
+                                Button {
+                                    store.edit(id, colorIndex: index)
+                                    choosingColor = false
+                                } label: {
+                                    RoundedRectangle(cornerRadius: 9).fill(Theme.color(index))
+                                        .frame(width: 30, height: 30)
+                                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(.black.opacity(0.18)))
+                                        .overlay {
+                                            if note.colorIndex == index {
+                                                Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.black.opacity(0.65))
+                                            }
+                                        }
+                                }
+                                .buttonStyle(.plain).accessibilityLabel(Theme.names[index])
+                                .accessibilityAddTraits(note.colorIndex == index ? .isSelected : [])
+                            }
+                        }.padding(12)
                     }
                     HeaderDragArea().frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
                         .accessibilityLabel("Move note")

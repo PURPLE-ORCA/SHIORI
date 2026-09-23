@@ -86,7 +86,7 @@ public final class NotesStore: ObservableObject {
         guard !isBusy(id), let index = notes.firstIndex(where: { $0.id == id }), notes[index].archivedAt == nil, notes[index].deletedAt == nil else { return }
         var note = notes[index]
         let textChanged = (title != nil && title != note.title) || (body != nil && body != note.body)
-        let color = colorIndex.map { min(4, max(0, $0)) }
+        let color = colorIndex.map { min(Note.colorCount - 1, max(0, $0)) }
         let colorChanged = color != nil && color != note.colorIndex
         guard textChanged || colorChanged else { return }
         if let title { note.title = title }
