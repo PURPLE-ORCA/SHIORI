@@ -3,6 +3,48 @@ import AppKit
 @testable import SHIORI
 
 final class ChecklistTests: XCTestCase {
+    @MainActor
+    func testPastedLinksRemainVisibleAtStartOfNoteAndLine() throws {
+        let editor = ChecklistTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        editor.isRichText = false
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        for prefix in ["", "First line\n", "See "] {
+            for url in ["https://example.com/path?q=test", "www.example.com"] {
+                editor.string = prefix
+                editor.setSelectedRange(NSRange(location: prefix.utf16.count, length: 0))
+                pasteboard.clearContents()
+                pasteboard.setString(url, forType: .string)
+                XCTAssertTrue(editor.readSelection(from: pasteboard))
+                XCTAssertEqual(editor.string, prefix + url)
+                let expectedURL = URL(string: url.hasPrefix("www.") ? "http://" + url : url)
+                XCTAssertEqual(editor.textStorage?.attribute(.link, at: prefix.utf16.count, effectiveRange: nil) as? URL, expectedURL)
+                let layout = try XCTUnwrap(editor.layoutManager)
+                layout.ensureLayout(for: try XCTUnwrap(editor.textContainer))
+                for index in prefix.utf16.count..<editor.string.utf16.count {
+                    let glyph = layout.glyphIndexForCharacter(at: index)
+                    XCTAssertFalse(layout.propertyForGlyph(at: glyph).contains(.null), prefix + url)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testBareLinksPreserveMarkdownLinksAndCode() throws {
+        let url = "https://beui.dev/components/blocks/expandable-tabs"
+        let source = "\(url)\n\n[beui.dev](\(url))\n\n`\(url)`\n\n\(url)"
+        let presentation = MarkdownPresentation(source: source, baseAttributes: [.font: Theme.bodyFont])
+        let label = (source as NSString).range(of: "beui.dev", options: [], range: (source as NSString).range(of: "[beui.dev]"))
+        XCTAssertEqual(presentation.text.attribute(.link, at: label.location, effectiveRange: nil) as? URL, URL(string: url))
+        XCTAssertTrue(presentation.hidden.contains(label.location - 1))
+        XCTAssertFalse(presentation.hidden.contains(label.location))
+        let code = (source as NSString).range(of: "`" + url + "`")
+        XCTAssertNil(presentation.text.attribute(.link, at: code.location + 1, effectiveRange: nil))
+        let last = (source as NSString).range(of: url, options: .backwards)
+        XCTAssertEqual(presentation.text.attribute(.link, at: last.location, effectiveRange: nil) as? URL, URL(string: url))
+        XCTAssertEqual(presentation.text.string, source)
+    }
+
     func testRecognizesUnicodeTasksAndSkipsFencedCode() {
         let text = "- [ ] Café 😀\n```markdown\n- [ ] inside code\n```\n\t* [x] مرحباً"
 

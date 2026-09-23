@@ -17,15 +17,27 @@ struct MarkdownPresentation {
         let baseFont = baseAttributes[.font] as? NSFont ?? Theme.bodyFont
         if let parsed = try? AttributedString(markdown: source, options: .init(appliesSourcePositionAttributes: true)) {
             hidden = IndexSet(integersIn: 0..<nsSource.length)
+            var sourceCursor = 0
             for run in parsed.runs {
-                guard let position = run.markdownSourcePosition else { continue }
-                guard let range = sourceMap.range(position) else {
-                    // Malformed parser coordinates must never hide content or crash the editor.
+                let content = String(parsed[run.range].characters)
+                // Synthetic separators have no source position and are preserved below.
+                if run.markdownSourcePosition == nil,
+                   parsed[run.range].characters.allSatisfy({ $0.isWhitespace }) { continue }
+                var sourceRange = run.markdownSourcePosition.flatMap { sourceMap.range($0) }
+                if run.link != nil, sourceRange.map({ nsSource.substring(with: $0) != content }) ?? true {
+                    // Foundation autolinks can omit or misreport coordinates. Match in source order.
+                    let match = nsSource.range(of: content, options: .literal,
+                                               range: NSRange(location: sourceCursor, length: nsSource.length - sourceCursor))
+                    sourceRange = match.location == NSNotFound ? nil : match
+                }
+                guard let range = sourceRange else {
+                    // Preserve source text if parser coordinates cannot be recovered.
                     self.text = NSAttributedString(string: source, attributes: baseAttributes)
                     self.hidden = []
                     self.listItems = items
                     return
                 }
+                sourceCursor = min(NSMaxRange(range), range.location + content.utf16.count)
                 hidden.remove(integersIn: range.location..<NSMaxRange(range))
                 let inline = run.inlinePresentationIntent ?? []
                 var font = baseFont
