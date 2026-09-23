@@ -212,7 +212,7 @@ final class EdgeDockController: NSObject {
         let edge: DockView.Edge = settings.edge == "left" ? .left : .right
         if dockView.edge != edge { dockView.edge = edge }
         let availableCardHeight = max(0, screen.visibleFrame.height - DockView.plusHeight - DockView.cardPadding * 2 - DockView.cardHeight)
-        dockView.visibleCardLimit = min(DockView.maxVisibleCards, max(1, Int(availableCardHeight / DockView.cardOverlap) + 1))
+        dockView.visibleCardLimit = max(1, Int(availableCardHeight / DockView.cardOverlap) + 1)
         dockView.scrollLimit = max(0, notes.count - dockView.visibleCardLimit)
         dockView.scrollIndex = min(dockView.scrollIndex, dockView.scrollLimit)
         positionedDisplayID = Self.displayID(for: screen)
@@ -407,7 +407,7 @@ final class EdgeDockController: NSObject {
 
         let cardHeight = DockView.cardHeight
         let overlap = DockView.cardOverlap
-        let visibleCount = min(dockView?.visibleCardLimit ?? DockView.maxVisibleCards, max(1, dockView?.notes.count ?? 0))
+        let visibleCount = min(dockView?.visibleCardLimit ?? 1, max(1, dockView?.notes.count ?? 0))
         let desiredHeight = DockView.plusHeight + DockView.cardPadding * 2
             + cardHeight + CGFloat(max(0, visibleCount - 1)) * overlap
         let height = min(max(desiredHeight, DockView.collapsedHeight), screen.visibleFrame.height)
@@ -663,7 +663,6 @@ private final class DockView: NSView {
     static let plusDiameter: CGFloat = 28
     static let tabWidth: CGFloat = 40
     static let peekDistance: CGFloat = 168
-    static let maxVisibleCards = 5
 
     weak var controller: EdgeDockController?
     var privacyLocked = false {
@@ -678,7 +677,7 @@ private final class DockView: NSView {
         }
     }
     var edge: Edge = .right { didSet { needsDisplay = true } }
-    var visibleCardLimit = maxVisibleCards
+    var visibleCardLimit = 1
     var scrollLimit = 0
     var scrollIndex = 0
     private var hoveredIndex: Int?
