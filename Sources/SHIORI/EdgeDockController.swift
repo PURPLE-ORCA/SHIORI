@@ -187,7 +187,7 @@ final class EdgeDockController: NSObject {
         let expanded = frame(for: screen, expanded: true)
         let anchor = anchorFrame(on: screen)
         let x = settings.edge == "left" ? anchor.minX + 23 : anchor.maxX - 23
-        return NSRect(x: x - 112, y: expanded.minY + 22 - 85, width: 224, height: 170)
+        return NSRect(x: x - 112, y: expanded.maxY - 22 - 85, width: 224, height: 170)
     }
 
     private func refreshLayout(animated: Bool) {
@@ -659,7 +659,7 @@ private final class DockView: NSView {
     static let cardHeight: CGFloat = 170
     static let cardOverlap: CGFloat = 74
     static let cardPadding: CGFloat = 14
-    static let plusHeight: CGFloat = 44
+    static let plusHeight: CGFloat = 80
     static let plusDiameter: CGFloat = 28
     static let tabWidth: CGFloat = 40
     static let peekDistance: CGFloat = 168
@@ -687,6 +687,7 @@ private final class DockView: NSView {
     private var dragIDs: [String]?
     private var dragTargetIndex: Int?
     private var draggingGrip = false
+    private var anchorDragOffset: CGFloat = 0
     private var plusPressed = false
     private var visualHoveredIndex: Int?
     private var lifts: [Int: CGFloat] = [:]
@@ -737,7 +738,7 @@ private final class DockView: NSView {
         guard bounds.contains(point) else { return false }
         if dockHitRect.contains(point) { return true }
         guard isExpanded else { return false }
-        return plusPath.contains(point) || visibleNotes.indices.contains { cardPath(at: $0).contains(point) }
+        return actionsFrame.contains(point) || visibleNotes.indices.contains { cardPath(at: $0).contains(point) }
     }
 
     fileprivate func updateHover(screenPoint: NSPoint, in panel: NSPanel) {
@@ -843,8 +844,13 @@ private final class DockView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         dragStart = point
         draggingGrip = !isExpanded || isGrip(point)
+        anchorDragOffset = point.y - anchorY
         plusPressed = false
         if isExpanded {
+            if draggingGrip {
+                controller?.beginDrag()
+                return
+            }
             if plusFrame.contains(point) {
                 plusPressed = true
                 return
@@ -863,7 +869,8 @@ private final class DockView: NSView {
         guard let start = dragStart else { return }
         let point = convert(event.locationInWindow, from: nil)
         if draggingGrip {
-            let screenPoint = window?.convertPoint(toScreen: point) ?? point
+            let anchorPoint = NSPoint(x: point.x, y: point.y - anchorDragOffset)
+            let screenPoint = window?.convertPoint(toScreen: anchorPoint) ?? anchorPoint
             controller?.moveAnchor(to: screenPoint)
             return
         }
@@ -970,18 +977,19 @@ private final class DockView: NSView {
         if let index = visualHoveredIndex, rendered.indices.contains(index), liftProgress(at: index) > 0 {
             drawCard(rendered[index], at: index, highlighted: true)
         }
-        drawGrip(at: edge == .left ? 15 : bounds.width - 15, y: anchorY)
 
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current?.cgContext.setAlpha(deckProgress)
         let plus = plusFrame
         NSColor(white: plusHovered ? 1 : 0.94, alpha: 0.98).setFill()
-        plusPath.fill()
+        let actionsPath = NSBezierPath(roundedRect: actionsFrame, xRadius: 18, yRadius: 18)
+        actionsPath.fill()
         NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
-        plusPath.lineWidth = 0.5
-        plusPath.stroke()
+        actionsPath.lineWidth = 0.5
+        actionsPath.stroke()
         NSImage(systemSymbolName: "plus", accessibilityDescription: "Create note")?.draw(in: plus.insetBy(dx: 8, dy: 8))
+        NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: "Move edge tabs")?.draw(in: gripFrame.insetBy(dx: 8, dy: 6))
     }
 
     private func drawCard(_ note: Note, at index: Int, highlighted: Bool) {
@@ -1088,16 +1096,6 @@ private final class DockView: NSView {
         return result
     }
 
-    private func drawGrip(at x: CGFloat, y: CGFloat) {
-        NSColor.black.withAlphaComponent(0.22).setFill()
-        for column in 0..<2 {
-            for row in 0..<3 {
-                let dot = NSRect(x: x + CGFloat(column) * 4 - 2, y: y - 7 + CGFloat(row) * 7, width: 2.5, height: 2.5)
-                NSBezierPath(ovalIn: dot).fill()
-            }
-        }
-    }
-
     private func timestamp(_ value: TimeInterval) -> String {
         Self.timestampFormatter.string(from: Date(timeIntervalSince1970: value))
     }
@@ -1106,7 +1104,7 @@ private final class DockView: NSView {
         let contentWidth = width ?? bounds.width
         let exposed = Self.tabWidth
         let x = edge == .left ? exposed - Self.cardWidth : contentWidth - exposed
-        let y = Self.plusHeight + Self.cardPadding + CGFloat(max(0, visibleNotes.count - index - 1)) * Self.cardOverlap
+        let y = Self.cardPadding + CGFloat(max(0, visibleNotes.count - index - 1)) * Self.cardOverlap
         return NSRect(x: x, y: y, width: Self.cardWidth, height: Self.cardHeight)
     }
 
@@ -1128,9 +1126,16 @@ private final class DockView: NSView {
     }
 
     private var plusFrame: NSRect {
-        let restingX = edge == .left ? 9 : bounds.width - 9 - Self.plusDiameter
-        let x = restingX + (edge == .left ? -1 : 1) * 16 * (1 - deckProgress)
-        return NSRect(x: x, y: (Self.plusHeight - Self.plusDiameter) / 2, width: Self.plusDiameter, height: Self.plusDiameter)
+        NSRect(x: edge == .left ? 8 : bounds.width - 36, y: bounds.maxY - 36, width: 28, height: 28)
+    }
+
+    private var actionsFrame: NSRect {
+        NSRect(x: edge == .left ? -18 : bounds.width - 44, y: bounds.maxY - Self.plusHeight,
+               width: 62, height: Self.plusHeight - 4)
+    }
+
+    private var gripFrame: NSRect {
+        NSRect(x: plusFrame.minX, y: actionsFrame.minY + 8, width: 28, height: 28)
     }
 
     private var dockHitRect: NSRect {
@@ -1230,6 +1235,7 @@ private final class DockView: NSView {
     }
 
     private func isGrip(_ point: NSPoint) -> Bool {
+        if isExpanded { return gripFrame.contains(point) }
         let x = edge == .left ? 10 : bounds.width - 20
         return NSRect(x: x, y: anchorY - 20, width: 10, height: 40).contains(point)
     }
@@ -1242,7 +1248,7 @@ private final class DockView: NSView {
             guard let index = visibleNotes.firstIndex(where: { $0.id == id }) else { return .zero }
             return cardFrame(at: index)
         case .grip:
-            return NSRect(x: edge == .left ? 8 : bounds.width - 24, y: anchorY - 24, width: 16, height: 48)
+            return isExpanded ? gripFrame : NSRect(x: edge == .left ? 8 : bounds.width - 24, y: anchorY - 24, width: 16, height: 48)
         }
     }
 
