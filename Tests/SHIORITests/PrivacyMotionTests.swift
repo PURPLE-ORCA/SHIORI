@@ -20,6 +20,60 @@ private final class FakeNoteAuthenticator: NoteAuthenticator {
 
 @MainActor
 final class PrivacyMotionTests: XCTestCase {
+    func testMultipleOpenNotesAndFocusRestoreWindowsAndStripe() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SHIORI_RUN_WINDOW_TESTS"] == "1", "Desktop-interactive test; opt in with SHIORI_RUN_WINDOW_TESTS=1.")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let repository = try await NoteRepository.open(at: root.appendingPathComponent("notes.sqlite"))
+        let store = NotesStore(repository: repository)
+        let first = try await store.create()
+        let second = try await store.create()
+        let settings = SettingsStore(defaults: defaults)
+        let manager = StickyWindowManager(store: store, settings: settings, reportError: { XCTFail($0.localizedDescription) })
+        let stripe = EdgeDockController(store: store, settings: settings, focus: manager.focus, open: { _, _ in }, create: {})
+        defer { stripe.stop(); manager.windows.values.forEach { $0.close() } }
+        manager.visibilityChanged = { stripe.refreshLayout() }
+        manager.open(first.id, near: nil)
+        manager.open(second.id, near: nil)
+        for _ in 0..<100 {
+            if manager.windows.count == 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(manager.windows.count, 2)
+        XCTAssertTrue(manager.windows[first.id]?.isVisible == true)
+        XCTAssertTrue(manager.windows[second.id]?.isVisible == true)
+        manager.toggleFocus(first.id)
+        XCTAssertTrue(manager.windows[first.id]?.isVisible == true)
+        XCTAssertFalse(manager.windows[second.id]?.isVisible == true)
+        XCTAssertEqual(stripe.displayedNotes.map(\.id), [first.id])
+        manager.exitFocus()
+        XCTAssertTrue(manager.windows[first.id]?.isVisible == true)
+        XCTAssertTrue(manager.windows[second.id]?.isVisible == true)
+        XCTAssertEqual(Set(stripe.displayedNotes.map(\.id)), Set([first.id, second.id]))
+        XCTAssertTrue(store.active.allSatisfy { !$0.pinned })
+    }
+
+    func testFocusTemporarilyFiltersNotesAndRestoresVisibilityRules() {
+        let focus = NoteFocusState()
+        let first = Note(id: "first", pinned: true)
+        let second = Note(id: "second", pinned: true)
+        XCTAssertTrue(focus.isVisible(first, hidden: false, matchesApp: true))
+        XCTAssertTrue(focus.isVisible(second, hidden: false, matchesApp: true))
+        focus.noteID = first.id
+        XCTAssertTrue(focus.isVisible(first, hidden: false, matchesApp: false))
+        XCTAssertFalse(focus.isVisible(second, hidden: false, matchesApp: true))
+        focus.noteID = nil
+        XCTAssertTrue(focus.isVisible(second, hidden: false, matchesApp: true))
+        XCTAssertFalse(focus.isVisible(first, hidden: false, matchesApp: false))
+        XCTAssertFalse(focus.isVisible(second, hidden: true, matchesApp: true))
+        var deleted = first
+        deleted.deletedAt = 1
+        focus.noteID = deleted.id
+        XCTAssertFalse(focus.isVisible(deleted, hidden: false, matchesApp: true))
+    }
+
     private func residentBytes() -> UInt64 {
         var info = mach_task_basic_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<natural_t>.size)

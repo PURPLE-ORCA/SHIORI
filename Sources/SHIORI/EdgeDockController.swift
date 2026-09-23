@@ -65,6 +65,7 @@ final class EdgeDockController: NSObject {
     private let appAttachment: AppAttachmentContext?
     private var appBundleIdentifier: String?
     private var appAnchor: Double = 0.5
+    private let focus: NoteFocusState?
     private let privacy: PrivacyLock?
     private var privacySubscription: AnyCancellable?
     private var privacyLocked = false
@@ -95,6 +96,7 @@ final class EdgeDockController: NSObject {
         displayID: CGDirectDisplayID? = nil,
         privacy: PrivacyLock? = nil,
         appAttachment: AppAttachmentContext? = nil,
+        focus: NoteFocusState? = nil,
         open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
         pointerLocation: @escaping () -> NSPoint = { NSEvent.mouseLocation },
@@ -107,6 +109,7 @@ final class EdgeDockController: NSObject {
             alert.runModal()
         }
     ) {
+        self.focus = focus
         self.appAttachment = appAttachment
         self.store = store
         self.privacy = privacy
@@ -142,6 +145,7 @@ final class EdgeDockController: NSObject {
     var phase: DockPhase { phaseMachine.phase }
     var displayedNotes: [Note] {
         store.active.filter { note in
+            if let focusedID = focus?.noteID { return appAttachment == nil && note.id == focusedID }
             if let appAttachment {
                 return note.attachedAppBundleIdentifier != nil &&
                     note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier
@@ -199,6 +203,7 @@ final class EdgeDockController: NSObject {
             dockView.scrollIndex = 0
         }
         guard let screen = retainedScreen(),
+              (focus?.noteID == nil || !displayedNotes.isEmpty),
               appAttachment == nil || (appAttachment?.hasVisibleWindow == true && !displayedNotes.isEmpty) else {
             cancelTransitions()
             phaseMachine.hideImmediately()

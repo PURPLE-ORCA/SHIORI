@@ -135,7 +135,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "SHIORI")
         let menu = NSMenu()
-        for (title, action, key) in [("Unlock SHIORI", #selector(unlockNotes), ""), ("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide Floating Notes", #selector(toggleFloating), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
+        for (title, action, key) in [("Unlock SHIORI", #selector(unlockNotes), ""), ("New Note", #selector(newNote), "n"), ("Quick Search…", #selector(quickSearch), ""), ("Hide Floating Notes", #selector(toggleFloating), ""), ("Exit Focus", #selector(exitFocus), ""), ("Settings…", #selector(showSettings), ","), ("Quit SHIORI", #selector(quit), "q")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
@@ -171,7 +171,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             store = loaded
             let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, reportError: { [weak self] error in self?.present(error) })
             windows = manager
-            appTabs = EdgeDockController(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment,
+            appTabs = EdgeDockController(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, focus: manager.focus,
                 open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) },
                 create: { [weak self] in
                     guard let self, let bundleID = self.appAttachment.currentBundleIdentifier else { return }
@@ -180,6 +180,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             manager.visibilityChanged = { [weak self, weak manager] in
                 self?.appTabs?.setVisible(manager?.hidden != true)
                 self?.appTabs?.refreshLayout()
+                self?.edgeTabs.values.forEach { $0.refreshLayout() }
             }
             manager.edgeFrame = { [weak self] id, screen in
                 guard let self else { return nil }
@@ -212,7 +213,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for screen in screens {
             guard let id = EdgeDockController.displayID(for: screen) else { continue }
             if edgeTabs[id] == nil {
-                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id, privacy: privacy,
+                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id, privacy: privacy, focus: windows.focus,
                     open: { [weak windows] noteID, frame in windows?.open(noteID, near: nil, from: frame) },
                     create: { [weak self] in self?.createNote(on: screen) })
             }
@@ -230,7 +231,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let store else { return }
         Task {
             do {
-                if let current = windows?.transient { try await store.flush(current) }
+                try await store.flush()
                 let note = try await store.create()
                 if let bundleIdentifier { try await store.setAttachedApp(note.id, bundleIdentifier: bundleIdentifier) }
                 let source = bundleIdentifier != nil ? appTabs?.creationFrame() : EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() }
@@ -245,8 +246,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         searchController?.show()
     }
+    @objc func exitFocus() { windows?.exitFocus() }
     @objc func toggleFloating() { windows?.toggleHidden() }
     func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.first { $0.action == #selector(exitFocus) }?.isHidden = windows?.focus.noteID == nil
         menu.items.first { $0.action == #selector(unlockNotes) }?.isHidden = !privacy.isLocked
         menu.items.first { $0.action == #selector(toggleFloating) }?.title = windows?.hidden == true ? "Show Floating Notes" : "Hide Floating Notes"
     }

@@ -259,7 +259,20 @@ final class StickyPanel: NSPanel {
 }
 
 @MainActor
+final class NoteFocusState: ObservableObject {
+    @Published var noteID: String?
+
+    func allows(_ id: String) -> Bool { noteID == nil || noteID == id }
+
+    func isVisible(_ note: Note, hidden: Bool, matchesApp: Bool) -> Bool {
+        guard note.archivedAt == nil, note.deletedAt == nil, allows(note.id) else { return false }
+        return noteID == note.id || (!(note.pinned && hidden) && matchesApp)
+    }
+}
+
+@MainActor
 final class StickyWindowManager: NSObject, NSWindowDelegate {
+    let focus = NoteFocusState()
     let appAttachment: AppAttachmentContext
     let store: NotesStore
     let settings: SettingsStore
@@ -267,7 +280,6 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     let privacy: PrivacyLock?
     private var privacySubscription: AnyCancellable?
     var windows: [String: StickyPanel] = [:]
-    var transient: String?
     var hidden = false
     private let deleteUndo = DeleteUndoCoordinator()
     private var geometryTasks: [String: Task<Void, Never>] = [:]
@@ -303,16 +315,15 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         opening = Task { [weak self] in
             await previous?.value
             guard let self else { return }
-            do {
-                await self.transitions[id]?.value
-                guard let note = self.store.notes.first(where: { $0.id == id }), note.archivedAt == nil, note.deletedAt == nil else { return }
-                if !note.pinned { try await self.closeTransient(except: id); self.transient = id }
-                self.show(id, near: point, focusTitle: focusTitle, from: cardFrame)
-                await self.transitions[id]?.value
-            } catch { self.reportError(error) }
+            await self.transitions[id]?.value
+            guard let note = self.store.notes.first(where: { $0.id == id }), note.archivedAt == nil, note.deletedAt == nil else { return }
+            if !self.focus.allows(id) { self.exitFocus() }
+            self.show(id, near: point, focusTitle: focusTitle, from: cardFrame)
+            await self.transitions[id]?.value
         }
     }
     private func show(_ id: String, near point: NSPoint?, focusTitle: Bool, activate: Bool = true, from cardFrame: NSRect? = nil) {
+        guard focus.allows(id) else { return }
         let targetScreen = cardFrame.flatMap { frame in
             NSScreen.screens.max { lhs, rhs in
                 let left = lhs.visibleFrame.intersection(frame), right = rhs.visibleFrame.intersection(frame)
@@ -338,7 +349,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
         window.delegate = self
         window.requestClose = { [weak self] in self?.close(id) }
-        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, appAttachment: appAttachment, attach: { [weak self] bundleID in self?.attach(id, to: bundleID) }, id: id, focusTitle: focusTitle,
+        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, appAttachment: appAttachment, focus: focus, toggleFocus: { [weak self] in self?.toggleFocus(id) }, attach: { [weak self] bundleID in self?.attach(id, to: bundleID) }, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
         if let privacy {
             let unlock: () -> Void = { [weak privacy] in privacy?.perform {} }
@@ -381,12 +392,6 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
     func restorePinned() {
         refreshVisibility()
     }
-    func closeTransient(except id: String? = nil) async throws {
-        if let current = transient, current != id {
-            try await store.flush(current)
-            await dismiss(current)
-        }
-    }
     func close(_ id: String) {
         if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.close(id) }; return }
         Task {
@@ -406,7 +411,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
                 guard let note = store.notes.first(where: { $0.id == id }) else { return }
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: !note.pinned)
-                if note.pinned { await dismiss(id) } else { transient = nil; saveGeometry(id) }
+                if note.pinned { await dismiss(id) } else { saveGeometry(id) }
             } catch { reportError(error) }
         }
     }
@@ -453,11 +458,11 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             self.windows.removeValue(forKey: id)
             self.stableFrames.removeValue(forKey: id)
             self.closing.remove(id)
-            if self.transient == id { self.transient = nil }
             self.transitions.removeValue(forKey: id)
         }
         transitions[id] = task
         await task.value
+        if focus.noteID == id { exitFocus() }
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if let id = sender.identifier?.rawValue { close(id) }
@@ -485,7 +490,6 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         Task {
             do {
                 try await store.setAttachedApp(id, bundleIdentifier: bundleIdentifier)
-                if bundleIdentifier != nil, transient == id { transient = nil }
                 refreshVisibility()
             } catch { reportError(error) }
         }
@@ -494,10 +498,24 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         note.attachedAppBundleIdentifier == nil || (note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier && appAttachment.hasVisibleWindow)
     }
     func toggleHidden() {
+        focus.noteID = nil
         hidden.toggle()
         refreshVisibility()
     }
+    func toggleFocus(_ id: String) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.toggleFocus(id) }; return }
+        guard let note = store.note(id: id), note.archivedAt == nil, note.deletedAt == nil,
+              windows[id] != nil else { return }
+        focus.noteID = focus.noteID == id ? nil : id
+        refreshVisibility()
+        windows[id]?.makeKeyAndOrderFront(nil)
+    }
+    func exitFocus() {
+        focus.noteID = nil
+        refreshVisibility()
+    }
     func refreshVisibility(resample: Bool = true) {
+        if let id = focus.noteID, !store.active.contains(where: { $0.id == id }) { focus.noteID = nil }
         if resample { appAttachment.refreshWindowVisibility() }
         appAttachment.setTrackingEnabled(store.active.contains {
             $0.attachedAppBundleIdentifier != nil && $0.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier
@@ -508,7 +526,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         for (id, window) in windows {
             window.collectionBehavior = settings.collectionBehavior
             guard let note = store.note(id: id) else { window.orderOut(nil); continue }
-            if note.archivedAt != nil || note.deletedAt != nil || (note.pinned && hidden) || !matchesApp(note) {
+            if !focus.isVisible(note, hidden: hidden, matchesApp: matchesApp(note)) {
                 window.orderOut(nil)
             } else if !window.isVisible { window.orderFrontRegardless() }
         }
@@ -545,6 +563,8 @@ struct StickyEditorView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var store: NotesStore
     @ObservedObject var appAttachment: AppAttachmentContext
+    @ObservedObject var focus: NoteFocusState
+    let toggleFocus: () -> Void
     let attach: (String?) -> Void
     let id: String
     let focusTitle: Bool
@@ -616,6 +636,16 @@ struct StickyEditorView: View {
                     }
                     HeaderDragArea().frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
                         .accessibilityLabel("Move note")
+                    Button(action: toggleFocus) {
+                        if focus.noteID == id {
+                            Text("Exit Focus").font(.system(size: 11, weight: .medium))
+                        } else {
+                            Image(systemName: "viewfinder").font(.system(size: 14)).frame(width: 24, height: 24)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(focus.noteID == id ? "Exit Focus" : "Focus Note")
+                    .help(focus.noteID == id ? "Exit Focus" : "Focus Note")
                     if store.hasError(id) {
                         Button("Retry save", systemImage: "exclamationmark.circle") {
                             Task { do { try await store.flush(id) } catch { AppCoordinator.logger.error("Retry failed") } }
