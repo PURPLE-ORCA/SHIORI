@@ -65,6 +65,10 @@ final class EdgeDockController: NSObject {
     private let appAttachment: AppAttachmentContext?
     private var appBundleIdentifier: String?
     private var appAnchor: Double = 0.5
+    private let groupID: String?
+    private let tearOff: ((String, NSPoint) -> Void)?
+    private var group: SettingsStore.DetachedGroup? { settings.detachedGroups.first { $0.id == groupID } }
+    private var edge: String { group?.edge ?? settings.edge }
     private let focus: NoteFocusState?
     private let privacy: PrivacyLock?
     private var privacySubscription: AnyCancellable?
@@ -97,6 +101,8 @@ final class EdgeDockController: NSObject {
         privacy: PrivacyLock? = nil,
         appAttachment: AppAttachmentContext? = nil,
         focus: NoteFocusState? = nil,
+        groupID: String? = nil,
+        tearOff: ((String, NSPoint) -> Void)? = nil,
         open: @escaping (String, NSRect?) -> Void,
         create: @escaping () -> Void,
         pointerLocation: @escaping () -> NSPoint = { NSEvent.mouseLocation },
@@ -109,6 +115,8 @@ final class EdgeDockController: NSObject {
             alert.runModal()
         }
     ) {
+        self.groupID = groupID
+        self.tearOff = tearOff
         self.focus = focus
         self.appAttachment = appAttachment
         self.store = store
@@ -145,7 +153,10 @@ final class EdgeDockController: NSObject {
     var phase: DockPhase { phaseMachine.phase }
     var displayedNotes: [Note] {
         store.active.filter { note in
-            if let focusedID = focus?.noteID { return appAttachment == nil && note.id == focusedID }
+            if let focusedID = focus?.noteID, note.id != focusedID { return false }
+            if let groupID { return group?.id == groupID && group?.noteIDs.contains(note.id) == true }
+            if settings.detachedGroup(for: note.id) != nil { return false }
+            if focus?.noteID == note.id { return appAttachment == nil }
             if let appAttachment {
                 return note.attachedAppBundleIdentifier != nil &&
                     note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier
@@ -178,11 +189,11 @@ final class EdgeDockController: NSObject {
         guard let screen = retainedScreen(), displayedNotes.contains(where: { $0.id == id }) else { return nil }
         if appAttachment != nil {
             let collapsed = frame(for: screen, expanded: false)
-            return NSRect(x: settings.edge == "left" ? collapsed.minX : collapsed.maxX - 14,
+            return NSRect(x: edge == "left" ? collapsed.minX : collapsed.maxX - 14,
                           y: collapsed.minY, width: 14, height: collapsed.height)
         }
         let origin = cardScreenFrame(for: id)?.origin ?? frame(for: screen, expanded: false).origin
-        let x = settings.edge == "left" ? screen.visibleFrame.minX - 184 : screen.visibleFrame.maxX - 40
+        let x = edge == "left" ? screen.visibleFrame.minX - 184 : screen.visibleFrame.maxX - 40
         return NSRect(x: x, y: origin.y, width: 224, height: 170)
     }
 
@@ -190,7 +201,7 @@ final class EdgeDockController: NSObject {
         guard let screen = retainedScreen() else { return nil }
         let expanded = frame(for: screen, expanded: true)
         let anchor = anchorFrame(on: screen)
-        let x = settings.edge == "left" ? anchor.minX + 23 : anchor.maxX - 23
+        let x = edge == "left" ? anchor.minX + 23 : anchor.maxX - 23
         return NSRect(x: x - 112, y: expanded.maxY - 22 - 85, width: 224, height: 170)
     }
 
@@ -203,6 +214,7 @@ final class EdgeDockController: NSObject {
             dockView.scrollIndex = 0
         }
         guard let screen = retainedScreen(),
+              (groupID == nil || (group != nil && !displayedNotes.isEmpty)),
               (focus?.noteID == nil || !displayedNotes.isEmpty),
               appAttachment == nil || (appAttachment?.hasVisibleWindow == true && !displayedNotes.isEmpty) else {
             cancelTransitions()
@@ -214,7 +226,7 @@ final class EdgeDockController: NSObject {
         guard !anchor.isEmpty, !anchor.isNull else { panel.orderOut(nil); return }
         let notes = privacyLocked ? displayedNotes.map(PrivacyLock.concealed) : displayedNotes
         if dockView.notes != notes { dockView.notes = notes }
-        let edge: DockView.Edge = settings.edge == "left" ? .left : .right
+        let edge: DockView.Edge = self.edge == "left" ? .left : .right
         if dockView.edge != edge { dockView.edge = edge }
         let availableCardHeight = max(0, screen.visibleFrame.height - DockView.plusHeight - DockView.cardPadding * 2 - DockView.cardHeight)
         dockView.visibleCardLimit = max(1, Int(availableCardHeight / DockView.cardOverlap) + 1)
@@ -367,7 +379,9 @@ final class EdgeDockController: NSObject {
                 return left.width * left.height < right.width * right.height
             }
         }
-        if let id = fixedDisplayID { return NSScreen.screens.first { Self.displayID(for: $0) == id } }
+        if let id = fixedDisplayID {
+            return NSScreen.screens.first { Self.displayID(for: $0) == id } ?? (groupID == nil ? nil : NSScreen.main)
+        }
         if let id = primaryDisplayID,
            let screen = NSScreen.screens.first(where: { Self.displayID(for: $0) == id }) {
             return screen
@@ -380,10 +394,10 @@ final class EdgeDockController: NSObject {
 
     private func frame(for screen: NSScreen, expanded: Bool) -> NSRect {
         let visibleFrame = anchorFrame(on: screen)
-        let anchor = pendingAnchor ?? (appAttachment == nil ? settings.anchor : appAnchor)
+        let anchor = pendingAnchor ?? (group?.anchor ?? (appAttachment == nil ? settings.anchor : appAnchor))
         var center = visibleFrame.minY + visibleFrame.height * anchor
         if appAttachment != nil {
-            let atScreenEdge = settings.edge == "left"
+            let atScreenEdge = edge == "left"
                 ? visibleFrame.minX - screen.visibleFrame.minX < DockView.collapsedWidth
                 : screen.visibleFrame.maxX - visibleFrame.maxX < DockView.collapsedWidth
             let screenCenter = min(max(screen.visibleFrame.minY + screen.visibleFrame.height * settings.anchor,
@@ -399,7 +413,7 @@ final class EdgeDockController: NSObject {
         guard expanded else {
             let height = min(DockView.collapsedHeight, visibleFrame.height)
             let y = center - height / 2
-            let x = settings.edge == "left"
+            let x = edge == "left"
                 ? visibleFrame.minX
                 : visibleFrame.maxX - DockView.collapsedWidth
             return NSRect(
@@ -418,7 +432,7 @@ final class EdgeDockController: NSObject {
         let height = min(max(desiredHeight, DockView.collapsedHeight), screen.visibleFrame.height)
         let y = min(max(center - height / 2, screen.visibleFrame.minY), screen.visibleFrame.maxY - height)
         let width = DockView.expandedWidth
-        let x = settings.edge == "left" ? visibleFrame.minX : visibleFrame.maxX - width
+        let x = edge == "left" ? visibleFrame.minX : visibleFrame.maxX - width
         return NSRect(x: x, y: y, width: width, height: height)
     }
 
@@ -528,7 +542,9 @@ final class EdgeDockController: NSObject {
     fileprivate func finishAnchorDrag() {
         guard let pendingAnchor else { return }
         self.pendingAnchor = nil
-        if appAttachment == nil { settings.anchor = pendingAnchor } else { appAnchor = pendingAnchor }
+        if let groupID, let index = settings.detachedGroups.firstIndex(where: { $0.id == groupID }) {
+            settings.detachedGroups[index].anchor = pendingAnchor
+        } else if appAttachment == nil { settings.anchor = pendingAnchor } else { appAnchor = pendingAnchor }
         refreshLayout(animated: false)
     }
 
@@ -539,6 +555,11 @@ final class EdgeDockController: NSObject {
         }
         keepOpen()
         openNote(note.id, cardScreenFrame(for: note.id) ?? NSRect(origin: screenPoint, size: NSSize(width: DockView.cardWidth, height: DockView.cardHeight)))
+    }
+
+    fileprivate func didTearOff(_ id: String, at point: NSPoint) {
+        if let privacy, privacy.isLocked { return }
+        tearOff?(id, point)
     }
 
     fileprivate func unlockNotes() { privacy?.perform {} }
@@ -654,7 +675,7 @@ struct DockTransition {
 }
 
 @MainActor
-private final class DockView: NSView {
+private final class DockView: NSView, NSDraggingSource {
     enum Edge { case left, right }
 
     static let collapsedWidth: CGFloat = 30
@@ -689,6 +710,9 @@ private final class DockView: NSView {
     private var tracking: NSTrackingArea?
     private var dragStart: NSPoint?
     private var dragIndex: Int?
+    private var tornNoteID: String?
+    private var tearOffCancelled = false
+    private var tearOffKeyMonitor: Any?
     private var dragIDs: [String]?
     private var dragTargetIndex: Int?
     private var draggingGrip = false
@@ -880,6 +904,32 @@ private final class DockView: NSView {
             return
         }
         guard let dragIndex, let dragIDs, dragIDs.indices.contains(dragIndex) else { return }
+        let inwardDistance = (point.x - start.x) * (edge == .right ? -1 : 1)
+        if inwardDistance > 55, visibleNotes.indices.contains(dragIndex) {
+            let note = visibleNotes[dragIndex]
+            let item = NSPasteboardItem()
+            item.setString(note.id, forType: NSPasteboard.PasteboardType("app.shiori.note"))
+            let draggingItem = NSDraggingItem(pasteboardWriter: item)
+            let preview = NSImage(size: NSSize(width: Self.cardWidth, height: Self.cardHeight))
+            preview.lockFocus()
+            Theme.nsColor(note.colorIndex).setFill()
+            NSBezierPath(roundedRect: NSRect(origin: .zero, size: preview.size), xRadius: 16, yRadius: 16).fill()
+            (note.title as NSString).draw(in: NSRect(x: 18, y: 126, width: 188, height: 26), withAttributes: [.font: Theme.roundedFont(size: 15, weight: .semibold), .foregroundColor: NSColor.black])
+            bodyPreview(note).draw(in: NSRect(x: 18, y: 18, width: 188, height: 100))
+            preview.unlockFocus()
+            draggingItem.setDraggingFrame(NSRect(x: point.x - 112, y: point.y - 85, width: 224, height: 170), contents: preview)
+            tornNoteID = note.id
+            tearOffCancelled = false
+            tearOffKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated { if event.keyCode == 53 { self?.tearOffCancelled = true } }
+                return event
+            }
+            self.dragIndex = nil
+            dragTargetIndex = nil
+            let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
+            session.animatesToStartingPositionsOnCancelOrFail = false
+            return
+        }
         guard hypot(point.x - start.x, point.y - start.y) > 4 else { return }
         let target = targetIndex(at: point)
         if dragTargetIndex != target {
@@ -889,6 +939,7 @@ private final class DockView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard tornNoteID == nil else { return }
         guard dragStart != nil else { return }
         defer {
             dragStart = nil
@@ -935,11 +986,26 @@ private final class DockView: NSView {
         if let ids = reorderedIDs() { controller?.didFinishReorder(ids: ids) }
     }
 
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        let id = tornNoteID
+        tornNoteID = nil
+        dragStart = nil
+        dragIDs = nil
+        dragTargetIndex = nil
+        if let tearOffKeyMonitor { NSEvent.removeMonitor(tearOffKeyMonitor); self.tearOffKeyMonitor = nil }
+        if let id, !tearOffCancelled, !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.keyCode == 53) {
+            controller?.didTearOff(id, at: screenPoint)
+        }
+        controller?.updatePointerInteraction()
+    }
+
     private var isExpanded: Bool {
         controller?.phase == .expanded || controller?.phase == .pendingClose
     }
 
-    fileprivate var isDragging: Bool { draggingGrip || dragIndex != nil || plusPressed }
+    fileprivate var isDragging: Bool { draggingGrip || dragIndex != nil || plusPressed || tornNoteID != nil }
 
     private var visibleNotes: [Note] {
         guard notes.isEmpty == false else { return [] }
@@ -1170,6 +1236,7 @@ private final class DockView: NSView {
     }
 
     fileprivate func stopAnimations() {
+        if let tearOffKeyMonitor { NSEvent.removeMonitor(tearOffKeyMonitor); self.tearOffKeyMonitor = nil }
         displayLink?.invalidate(); displayLink = nil
         deckTransition = nil
         resetHover()

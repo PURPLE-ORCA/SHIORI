@@ -349,7 +349,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier(id)
         window.delegate = self
         window.requestClose = { [weak self] in self?.close(id) }
-        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, appAttachment: appAttachment, focus: focus, toggleFocus: { [weak self] in self?.toggleFocus(id) }, attach: { [weak self] bundleID in self?.attach(id, to: bundleID) }, id: id, focusTitle: focusTitle,
+        let editor = NSHostingView(rootView: StickyEditorView(settings: settings, store: store, appAttachment: appAttachment, focus: focus, finishedDragging: { [weak self] in self?.finishedDragging(id) }, toggleFocus: { [weak self] in self?.toggleFocus(id) }, attach: { [weak self] bundleID in self?.attach(id, to: bundleID) }, id: id, focusTitle: focusTitle,
             close: { [weak self] in self?.close(id) }, pin: { [weak self] in self?.togglePin(id) }, delete: { [weak self] in self?.delete(id) }))
         if let privacy {
             let unlock: () -> Void = { [weak privacy] in privacy?.perform {} }
@@ -399,6 +399,7 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
             do {
                 try await store.flush(id)
                 try await store.setPinned(id, pinned: false)
+                if settings.detachedGroup(for: id)?.noteIDs.count == 1 { placeDetachedAtEdge(id) }
                 await dismiss(id)
             } catch { reportError(error) }
         }
@@ -490,12 +491,74 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
         Task {
             do {
                 try await store.setAttachedApp(id, bundleIdentifier: bundleIdentifier)
+                if bundleIdentifier != nil { settings.removeFromDetachedGroup(id) }
                 refreshVisibility()
             } catch { reportError(error) }
         }
     }
     func matchesApp(_ note: Note) -> Bool {
         note.attachedAppBundleIdentifier == nil || (note.attachedAppBundleIdentifier == appAttachment.currentBundleIdentifier && appAttachment.hasVisibleWindow)
+    }
+
+    func tearOff(_ id: String, at point: NSPoint) {
+        if let privacy, privacy.isLocked { privacy.perform { [weak self] in self?.tearOff(id, at: point) }; return }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }),
+              let displayID = EdgeDockController.displayID(for: screen) else { return }
+        Task {
+            do {
+                await transitions[id]?.value
+                guard store.active.contains(where: { $0.id == id }) else { return }
+                if store.note(id: id)?.attachedAppBundleIdentifier != nil { try await store.setAttachedApp(id, bundleIdentifier: nil) }
+                let nearEdge = min(abs(point.x - screen.visibleFrame.minX), abs(point.x - screen.visibleFrame.maxX)) < 56
+                if nearEdge {
+                    try await store.setPinned(id, pinned: false)
+                    settings.dockDetached(id, at: point, displayID: displayID, screen: screen.visibleFrame, allowMain: true)
+                    visibilityChanged?()
+                    await dismiss(id)
+                    return
+                }
+                try await store.setPinned(id, pinned: true)
+                settings.dockDetached(id, at: point, displayID: displayID, screen: screen.visibleFrame)
+                let frame = WindowGeometry.clamp(NSRect(x: point.x - Theme.editorSize.width / 2, y: point.y - Theme.editorSize.height / 2, width: Theme.editorSize.width, height: Theme.editorSize.height), to: [screen.visibleFrame])
+                settings.saveFrame(frame, id: id, display: String(displayID))
+                windows[id]?.setFrame(frame, display: true)
+                open(id, near: point, from: NSRect(x: point.x - 112, y: point.y - 85, width: 224, height: 170))
+            } catch { reportError(error) }
+        }
+    }
+
+    private func placeDetachedAtEdge(_ id: String, point: NSPoint? = nil, allowMain: Bool = false) {
+        guard let window = windows[id], let screen = window.screen,
+              let displayID = EdgeDockController.displayID(for: screen) else { return }
+        settings.dockDetached(id, at: point ?? NSPoint(x: window.frame.midX, y: window.frame.midY),
+                              displayID: displayID, screen: screen.visibleFrame, allowMain: allowMain)
+        visibilityChanged?()
+    }
+
+    func finishedDragging(_ id: String) {
+        guard settings.detachedGroup(for: id) != nil, let window = windows[id], let screen = window.screen else { return }
+        let point = NSEvent.mouseLocation
+        let frame = screen.visibleFrame
+        if min(abs(point.x - frame.minX), abs(point.x - frame.maxX)) < 56 {
+            Task {
+                do {
+                    try await store.flush(id)
+                    try await store.setPinned(id, pinned: false)
+                    placeDetachedAtEdge(id, point: point, allowMain: true)
+                    await dismiss(id)
+                } catch { reportError(error) }
+            }
+        } else if let neighbor = windows.first(where: { otherID, other in
+            otherID != id && other.isVisible && settings.detachedGroup(for: otherID) != nil &&
+                other.frame.insetBy(dx: -40, dy: -40).intersects(window.frame)
+        }), let target = settings.detachedGroup(for: neighbor.key) {
+            settings.removeFromDetachedGroup(id)
+            if let index = settings.detachedGroups.firstIndex(where: { $0.id == target.id }) {
+                settings.detachedGroups[index].noteIDs.append(id)
+            }
+            visibilityChanged?()
+        }
+        saveGeometry(id)
     }
     func toggleHidden() {
         focus.noteID = nil
@@ -550,13 +613,19 @@ final class StickyWindowManager: NSObject, NSWindowDelegate {
 }
 
 struct HeaderDragArea: NSViewRepresentable {
+    var finishedDragging: (() -> Void)? = nil
     final class DragView: NSView {
+        var finishedDragging: (() -> Void)?
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
-        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+        override func mouseDown(with event: NSEvent) {
+            let origin = window?.frame.origin
+            window?.performDrag(with: event)
+            if window?.frame.origin != origin { finishedDragging?() }
+        }
     }
-    func makeNSView(context: Context) -> NSView { DragView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func makeNSView(context: Context) -> NSView { let view = DragView(); view.finishedDragging = finishedDragging; return view }
+    func updateNSView(_ nsView: NSView, context: Context) { (nsView as? DragView)?.finishedDragging = finishedDragging }
 }
 
 struct StickyEditorView: View {
@@ -564,6 +633,7 @@ struct StickyEditorView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var appAttachment: AppAttachmentContext
     @ObservedObject var focus: NoteFocusState
+    let finishedDragging: () -> Void
     let toggleFocus: () -> Void
     let attach: (String?) -> Void
     let id: String
@@ -605,7 +675,7 @@ struct StickyEditorView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 22)
                 .padding(.top, 12)
-                .overlay(alignment: .top) { HeaderDragArea().frame(height: 12).accessibilityLabel("Move note") }
+                .overlay(alignment: .top) { HeaderDragArea(finishedDragging: finishedDragging).frame(height: 12).accessibilityLabel("Move note") }
                 NativeEditor(text: Binding(get: { self.note?.body ?? "" }, set: { store.edit(id, body: $0) }), focus: $bodyFocus, bodyFont: settings.bodyFont)
                     .connecting { editor.view = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -634,7 +704,7 @@ struct StickyEditorView: View {
                             }
                         }.padding(12)
                     }
-                    HeaderDragArea().frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
+                    HeaderDragArea(finishedDragging: finishedDragging).frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
                         .accessibilityLabel("Move note")
                     Button(action: toggleFocus) {
                         if focus.noteID == id {

@@ -18,6 +18,16 @@ enum NoteBodyFont: String, CaseIterable {
 
 @MainActor
 final class SettingsStore: ObservableObject {
+    struct DetachedGroup: Codable, Equatable {
+        var id: String = UUID().uuidString
+        var displayID: UInt32
+        var edge: String
+        var anchor: Double
+        var noteIDs: [String]
+    }
+    @Published var detachedGroups: [DetachedGroup] {
+        didSet { if let data = try? JSONEncoder().encode(detachedGroups) { defaults.set(data, forKey: "detachedGroups") } }
+    }
     let defaults: UserDefaults
     @Published var edge: String { didSet { defaults.set(edge, forKey: "edge") } }
     @Published var anchor: Double { didSet { defaults.set(anchor, forKey: "anchor") } }
@@ -43,6 +53,9 @@ final class SettingsStore: ObservableObject {
     }
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        detachedGroups = defaults.data(forKey: "detachedGroups")
+            .flatMap { try? JSONDecoder().decode([DetachedGroup].self, from: $0) }?
+            .filter { $0.anchor.isFinite && (0...1).contains($0.anchor) && ["left", "right"].contains($0.edge) } ?? []
         defaults.register(defaults: ["edge": "right", "anchor": 0.5, "openDelay": 0.15, "closeDelay": 0.1, "acrossSpaces": true, "fullscreen": false, "noteFont": NoteBodyFont.architectsDaughter.rawValue, "noteFontSize": 16.0])
         edge = defaults.string(forKey: "edge") == "left" ? "left" : "right"
         anchor = min(1, max(0, defaults.double(forKey: "anchor")))
@@ -72,6 +85,49 @@ final class SettingsStore: ObservableObject {
     func resetPositions() {
         anchor = 0.5
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("window.") { defaults.removeObject(forKey: key) }
+    }
+
+    func detachedGroup(for id: String) -> DetachedGroup? { detachedGroups.first { $0.noteIDs.contains(id) } }
+
+    func removeFromDetachedGroup(_ id: String) {
+        var groups = detachedGroups
+        for index in groups.indices { groups[index].noteIDs.removeAll { $0 == id } }
+        groups.removeAll { $0.noteIDs.isEmpty }
+        if groups != detachedGroups { detachedGroups = groups }
+    }
+
+    func dockDetached(_ id: String, at point: NSPoint, displayID: UInt32, screen: NSRect, allowMain: Bool = false) {
+        guard screen.height > 0, point.x.isFinite, point.y.isFinite else { return }
+        let side = abs(point.x - screen.minX) < abs(point.x - screen.maxX) ? "left" : "right"
+        let position = min(1, max(0, (point.y - screen.minY) / screen.height))
+        let target = detachedGroups.filter { $0.displayID == displayID && $0.edge == side && $0.noteIDs.contains(where: { $0 != id }) }
+            .min { abs($0.anchor - position) < abs($1.anchor - position) }
+        removeFromDetachedGroup(id)
+        if let target, abs(target.anchor - position) * screen.height < 120,
+           let index = detachedGroups.firstIndex(where: { $0.id == target.id }) {
+            detachedGroups[index].noteIDs.append(id)
+        } else if allowMain, side == edge, abs(anchor - position) * screen.height < 80 {
+            return
+        } else {
+            let occupied = detachedGroups.filter { $0.displayID == displayID && $0.edge == side }.map(\.anchor)
+                + (side == edge ? [anchor] : [])
+            let step = 120 / screen.height
+            var candidates: [Double] = [position]
+            for offset in 1...max(1, Int(screen.height / 120) + 1) {
+                candidates.append(position + Double(offset) * step)
+                candidates.append(position - Double(offset) * step)
+            }
+            let placement = candidates.first { candidate in
+                (0...1).contains(candidate) && occupied.allSatisfy { abs($0 - candidate) * screen.height >= 119 }
+            }
+            if let placement {
+                detachedGroups.append(DetachedGroup(displayID: displayID, edge: side, anchor: placement, noteIDs: [id]))
+            } else if let target, let index = detachedGroups.firstIndex(where: { $0.id == target.id }) {
+                detachedGroups[index].noteIDs.append(id)
+            } else {
+                detachedGroups.append(DetachedGroup(displayID: displayID, edge: side, anchor: position, noteIDs: [id]))
+            }
+        }
     }
 }
 

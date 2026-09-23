@@ -27,6 +27,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var windows: StickyWindowManager?
     var appTabs: EdgeDockController?
     var edgeTabs: [CGDirectDisplayID: EdgeDockController] = [:]
+    var detachedTabs: [String: EdgeDockController] = [:]
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
     var subscriptions = Set<AnyCancellable>()
@@ -67,6 +68,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.objectWillChange.sink { [weak self] in
             Task { @MainActor in
                 self?.edgeTabs.values.forEach { $0.refreshLayout() }
+                self?.synchronizeDetachedTabs()
                 self?.windows?.refreshVisibility()
             }
         }.store(in: &subscriptions)
@@ -171,7 +173,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
             store = loaded
             let manager = StickyWindowManager(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, reportError: { [weak self] error in self?.present(error) })
             windows = manager
-            appTabs = EdgeDockController(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, focus: manager.focus,
+            appTabs = EdgeDockController(store: loaded, settings: settings, privacy: privacy, appAttachment: appAttachment, focus: manager.focus, tearOff: { [weak manager] id, point in manager?.tearOff(id, at: point) },
                 open: { [weak manager] id, frame in manager?.open(id, near: nil, from: frame) },
                 create: { [weak self] in
                     guard let self, let bundleID = self.appAttachment.currentBundleIdentifier else { return }
@@ -181,16 +183,20 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.appTabs?.setVisible(manager?.hidden != true)
                 self?.appTabs?.refreshLayout()
                 self?.edgeTabs.values.forEach { $0.refreshLayout() }
+                self?.synchronizeDetachedTabs()
             }
             manager.edgeFrame = { [weak self] id, screen in
                 guard let self else { return nil }
+                if let group = self.settings.detachedGroup(for: id) { return self.detachedTabs[group.id]?.returnFrame(for: id) }
                 if self.store?.note(id: id)?.attachedAppBundleIdentifier != nil {
                     return self.appTabs?.returnFrame(for: id)
                 }
                 let display = EdgeDockController.displayID(for: screen ?? NSScreen.main)
                 return display.flatMap { self.edgeTabs[$0]?.returnFrame(for: id) } ?? self.edgeTabs.values.first?.returnFrame(for: id)
             }
+            loaded.$notes.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.synchronizeDetachedTabs() }.store(in: &subscriptions)
             synchronizeEdgeTabs()
+            synchronizeDetachedTabs()
             manager.restorePinned()
             do { _ = try await repository.backupIfNeeded(in: dataFolder.appendingPathComponent("Backups")) }
             catch { present(error, title: "The backup could not be created") }
@@ -213,11 +219,29 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for screen in screens {
             guard let id = EdgeDockController.displayID(for: screen) else { continue }
             if edgeTabs[id] == nil {
-                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id, privacy: privacy, focus: windows.focus,
+                edgeTabs[id] = EdgeDockController(store: store, settings: settings, displayID: id, privacy: privacy, focus: windows.focus, tearOff: { [weak windows] id, point in windows?.tearOff(id, at: point) },
                     open: { [weak windows] noteID, frame in windows?.open(noteID, near: nil, from: frame) },
                     create: { [weak self] in self?.createNote(on: screen) })
             }
             edgeTabs[id]?.refreshLayout()
+        }
+    }
+
+    func synchronizeDetachedTabs() {
+        guard let store, let windows else { return }
+        let activeIDs = Set(store.active.map(\.id))
+        let groups = settings.detachedGroups.filter { !$0.noteIDs.allSatisfy { !activeIDs.contains($0) } }
+        let ids = Set(groups.map(\.id))
+        for id in Array(detachedTabs.keys) where !ids.contains(id) { detachedTabs.removeValue(forKey: id)?.stop() }
+        for group in groups {
+            if detachedTabs[group.id] == nil {
+                detachedTabs[group.id] = EdgeDockController(store: store, settings: settings, displayID: group.displayID,
+                    privacy: privacy, focus: windows.focus, groupID: group.id,
+                    tearOff: { [weak windows] id, point in windows?.tearOff(id, at: point) },
+                    open: { [weak windows] id, frame in windows?.open(id, near: nil, from: frame) },
+                    create: { [weak self] in self?.createNote(on: NSScreen.screens.first { EdgeDockController.displayID(for: $0) == group.displayID }, detachedGroup: group.id) })
+            }
+            detachedTabs[group.id]?.refreshLayout()
         }
     }
 
@@ -226,15 +250,20 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         createNote(on: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main)
     }
 
-    private func createNote(on screen: NSScreen?, attachedTo bundleIdentifier: String? = nil) {
+    private func createNote(on screen: NSScreen?, attachedTo bundleIdentifier: String? = nil, detachedGroup: String? = nil) {
         let point = screen.map { NSPoint(x: $0.visibleFrame.midX + Theme.editorSize.width / 2, y: $0.visibleFrame.midY) }
         guard let store else { return }
         Task {
             do {
                 try await store.flush()
                 let note = try await store.create()
+                if let detachedGroup, let index = settings.detachedGroups.firstIndex(where: { $0.id == detachedGroup }) {
+                    settings.detachedGroups[index].noteIDs.append(note.id)
+                    synchronizeDetachedTabs()
+                }
                 if let bundleIdentifier { try await store.setAttachedApp(note.id, bundleIdentifier: bundleIdentifier) }
-                let source = bundleIdentifier != nil ? appTabs?.creationFrame() : EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() }
+                let source = detachedGroup.flatMap { detachedTabs[$0]?.creationFrame() }
+                    ?? (bundleIdentifier != nil ? appTabs?.creationFrame() : EdgeDockController.displayID(for: screen).flatMap { edgeTabs[$0]?.creationFrame() })
                 windows?.open(note.id, near: point, focusTitle: true, from: source)
             } catch { present(error) }
         }
@@ -253,7 +282,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.items.first { $0.action == #selector(unlockNotes) }?.isHidden = !privacy.isLocked
         menu.items.first { $0.action == #selector(toggleFloating) }?.title = windows?.hidden == true ? "Show Floating Notes" : "Hide Floating Notes"
     }
-    @objc func displaysChanged() { synchronizeEdgeTabs(); windows?.clampWindows(); windows?.refreshVisibility() }
+    @objc func displaysChanged() { synchronizeEdgeTabs(); synchronizeDetachedTabs(); windows?.clampWindows(); windows?.refreshVisibility() }
     @objc func willSleep() {
         relock()
         windows?.saveAllGeometry()
@@ -262,6 +291,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         edgeTabs.values.forEach { $0.stop() }
         edgeTabs.removeAll()
+        detachedTabs.values.forEach { $0.stop() }
+        detachedTabs.removeAll()
         appTabs?.stop()
         appTabs = nil
         removeLifecycleObservers()
