@@ -640,7 +640,7 @@ struct StickyEditorView: View {
                         if focus.noteID == id {
                             Text("Exit Focus").font(.system(size: 11, weight: .medium))
                         } else {
-                            Image(systemName: "viewfinder").font(.system(size: 14)).frame(width: 24, height: 24)
+                            Image(systemName: "scope").font(.system(size: 14)).frame(width: 24, height: 24)
                         }
                     }
                     .buttonStyle(.plain)
